@@ -121,6 +121,37 @@ py::object draw_function;
 py::object update_function2;
 py::object draw_function2;
 
+static SharedMemoryManager g_runtime_shared_memory;
+static constexpr size_t k_runtime_shared_memory_size = SharedMemoryManager::AgentArraySMStructSize();
+
+static std::wstring GetRuntimeSharedMemoryNameW() {
+    return SharedMemoryManager::BuildName(
+        L"Py4GW_Runtime",
+        GetCurrentProcessId(),
+        Py4GW::get_gw_window_handle()
+    );
+}
+
+static std::string GetRuntimeSharedMemoryName() {
+    const std::wstring name = g_runtime_shared_memory.IsValid()
+        ? g_runtime_shared_memory.Name()
+        : GetRuntimeSharedMemoryNameW();
+    return std::string(name.begin(), name.end());
+}
+
+static size_t GetRuntimeSharedMemorySize() {
+    return g_runtime_shared_memory.IsValid() ? g_runtime_shared_memory.Size() : k_runtime_shared_memory_size;
+}
+
+static bool IsRuntimeSharedMemoryReady() {
+    return g_runtime_shared_memory.IsValid();
+}
+
+static uint32_t GetRuntimeSharedMemorySequence() {
+    const SharedMemoryHeader* header = g_runtime_shared_memory.Header();
+    return header ? header->sequence : 0;
+}
+
 // 1. A dedicated storage for a single Metric's history
 struct MetricData {
     static const int MAX_SAMPLES = 600;
@@ -1854,6 +1885,10 @@ bool Py4GW::Initialize() {
     py::initialize_interpreter();
     InitializeMerchantCallbacks();
 
+    if (!g_runtime_shared_memory.IsValid()) {
+        g_runtime_shared_memory.CreateAgentArrayRegion(GetRuntimeSharedMemoryNameW());
+    }
+
     DebugMessage(L"Py4GW, Initialized.");
 
     return true;
@@ -1861,6 +1896,7 @@ bool Py4GW::Initialize() {
 }
 
 void Py4GW::Terminate() {
+    g_runtime_shared_memory.Destroy();
     GW::DisableHooks();
     GW::Terminate();
     if (Py_IsInitialized()) {
@@ -1920,6 +1956,10 @@ void Py4GW::Update()
 
 void Py4GW::Draw(IDirect3DDevice9* device) {
 	frame_id_timestamp = GetTickCount64();
+
+    if (g_runtime_shared_memory.IsValid()) {
+        g_runtime_shared_memory.UpdateAgentArrayRegion();
+    }
 
     if (!g_d3d_device)
         g_d3d_device = device;
@@ -2153,6 +2193,10 @@ void bind_Game(py::module_& game)
     game.def("enqueue",&EnqueuePythonCallback,"Enqueue a Python callback to run on the GW game thread");
 
     game.def("get_tick_count64",&Get_Tick_Count64,"Get the current tick count as a 64-bit integer");
+    game.def("get_shared_memory_name", &GetRuntimeSharedMemoryName, "Get the current per-process runtime shared-memory name.");
+    game.def("get_shared_memory_size", &GetRuntimeSharedMemorySize, "Get the runtime shared-memory region size in bytes.");
+    game.def("is_shared_memory_ready", &IsRuntimeSharedMemoryReady, "Check whether the runtime shared-memory region is active.");
+    game.def("get_shared_memory_sequence", &GetRuntimeSharedMemorySequence, "Get the runtime shared-memory sequence counter.");
     //game.def("register_callback",&RegisterFrameCallback,"Register a named per-frame callback (idempotent by name)" );
     //game.def("remove_callback_by_id",&RemoveFrameCallbackById,"Remove a per-frame callback by id");
     //game.def("remove_callback",&RemoveFrameCallbackByName,"Remove a per-frame callback by name");

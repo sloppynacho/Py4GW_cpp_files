@@ -1281,6 +1281,23 @@ namespace GW {
                 return false;
             return DestroyUIComponent_Func(frame->frame_id);
         }
+        bool AddFrameUIInteractionCallback(Frame* frame, UIInteractionCallback callback, void* wparam) {
+            if (!(frame && frame->IsCreated() && callback))
+                return false;
+            auto* callbacks = reinterpret_cast<Array<FrameInteractionCallback>*>(&frame->frame_callbacks);
+            if (!(callbacks->valid() && callbacks->size() < callbacks->capacity()))
+                return false;
+            auto& entry = callbacks->m_buffer[callbacks->m_size++];
+            entry.callback = callback;
+            entry.uictl_context = wparam;
+            entry.h0008 = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(wparam));
+            return true;
+        }
+        bool TriggerFrameRedraw(Frame* frame) {
+            if (!(frame && frame->IsCreated()))
+                return false;
+            return SendFrameUIMessage(frame, UIMessage::kRefreshContent, nullptr, nullptr);
+        }
         Frame* CreateButtonFrame(Frame* parent, uint32_t component_flags, uint32_t child_index, wchar_t* name_enc, wchar_t* component_label) {
             InitializeTypedComponentCallbacks();
             if (!(parent && parent->IsCreated() && ButtonFrame_Callback))

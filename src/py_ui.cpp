@@ -346,12 +346,16 @@ PYBIND11_EMBEDDED_MODULE(PyUIManager, m) {
 
 
 	py::class_<UIManager>(m, "UIManager")
+		.def_static("get_text_language", &UIManager::GetTextLanguage, "Gets the current text language.")
 		.def_static("get_frame_logs", &UIManager::GetFrameLogs, "Retrieves the logs related to UI frames.")
 		.def_static("clear_frame_logs", &UIManager::ClearFrameLogs, "Clears the UI frame logs.")
 		.def_static("get_ui_message_logs", &UIManager::GetUIPayloads, "Retrieves the UI payloads.")
 		.def_static("clear_ui_message_logs", &UIManager::ClearUIPayloads, "Clears the UI payload logs.")
 		.def_static("get_frame_id_by_label", &UIManager::GetFrameIDByLabel, py::arg("label"), "Gets the frame ID associated with a given label.")
 		.def_static("get_frame_id_by_hash", &UIManager::GetFrameIDByHash, py::arg("hash"), "Gets the frame ID using its hash.")
+		.def_static("get_child_frame_by_frame_id", &UIManager::GetChildFrameByFrameId, py::arg("parent_frame_id"), py::arg("child_offset"), "Gets a direct child frame ID from a parent frame ID and child offset.")
+		.def_static("get_child_frame_path_by_frame_id", &UIManager::GetChildFramePathByFrameId, py::arg("parent_frame_id"), py::arg("child_offsets"), "Gets a descendant frame ID by walking child offsets from a parent frame ID.")
+		.def_static("get_parent_frame_id", &UIManager::GetParentFrameID, py::arg("frame_id"), "Gets the parent frame ID for a frame.")
 		.def_static("get_hash_by_label", &UIManager::GetHashByLabel, py::arg("label"), "Gets the hash of a frame label.")
 		.def_static("get_frame_hierarchy", &UIManager::GetFrameHierarchy, "Retrieves the hierarchy of frames as a list of tuples (parent, child, etc.).")
 		.def_static("get_frame_coords_by_hash", &UIManager::GetFrameCoordsByHash, py::arg("frame_hash"), "Gets the coordinates of a frame using its hash.")
@@ -405,6 +409,16 @@ PYBIND11_EMBEDDED_MODULE(PyUIManager, m) {
 			&UIManager::DestroyUIComponentByFrameId,
 			py::arg("frame_id")
 		)
+		.def_static("add_frame_ui_interaction_callback_by_frame_id",
+			&UIManager::AddFrameUIInteractionCallbackByFrameId,
+			py::arg("frame_id"),
+			py::arg("event_callback"),
+			py::arg("wparam") = 0
+		)
+		.def_static("trigger_frame_redraw_by_frame_id",
+			&UIManager::TriggerFrameRedrawByFrameId,
+			py::arg("frame_id")
+		)
 		.def_static("create_button_frame_by_frame_id",
 			&UIManager::CreateButtonFrameByFrameId,
 			py::arg("parent_frame_id"),
@@ -443,6 +457,13 @@ PYBIND11_EMBEDDED_MODULE(PyUIManager, m) {
 		.def_static("test_mouse_click_action", &UIManager::TestMouseClickAction, py::arg("frame_id"), py::arg("current_state"), py::arg("wparam_value") = 0, py::arg("lparam") = 0, "Simulates a mouse action on a frame.")
 		.def_static("get_root_frame_id", &UIManager::GetRootFrameID, "Gets the ID of the root frame.")
 		.def_static("is_world_map_showing", &UIManager::IsWorldMapShowing, "Checks if the world map is currently showing.")
+		.def_static("is_ui_drawn", &UIManager::IsUIDrawn, "Checks if the UI is currently drawn.")
+		.def_static("async_decode_str", &UIManager::AsyncDecodeStr, py::arg("enc_str"), "Decodes an encoded GW string.")
+		.def_static("is_valid_enc_str", &UIManager::IsValidEncStr, py::arg("enc_str"), "Checks if an encoded string is valid.")
+		.def_static("uint32_to_enc_str", &UIManager::UInt32ToEncStr, py::arg("value"), "Encodes a uint32 into a GW encoded string.")
+		.def_static("enc_str_to_uint32", &UIManager::EncStrToUInt32, py::arg("enc_str"), "Decodes a GW encoded string into a uint32.")
+		.def_static("set_open_links", &UIManager::SetOpenLinks, py::arg("toggle"), "Enables or disables GW open-links behavior.")
+		.def_static("draw_on_compass", &UIManager::DrawOnCompass, py::arg("session_id"), py::arg("points"), "Draws a polyline on the compass.")
 		.def_static("get_frame_limit", &UIManager::GetFrameLimit, "Gets the frame limit.")
 		.def_static("set_frame_limit", &UIManager::SetFrameLimit, py::arg("value"), "Sets the frame limit.")
 		.def_static("get_frame_array", &UIManager::GetFrameArray, "Gets the frame array.")

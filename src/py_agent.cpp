@@ -3,6 +3,7 @@
 
 namespace py = pybind11;
 
+
 Profession::Profession(int prof) : profession(static_cast<ProfessionType>(prof)) 
 { profession = static_cast<ProfessionType>(prof); }
 

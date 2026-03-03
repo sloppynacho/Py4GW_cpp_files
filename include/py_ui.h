@@ -164,6 +164,10 @@ public:
 
 class UIManager {
 public:
+    static uint32_t GetTextLanguage() {
+        return static_cast<uint32_t>(GW::UI::GetTextLanguage());
+    }
+
 	static std::vector<std::tuple<uint64_t, uint32_t, std::string>> GetFrameLogs() {
 		return GW::UI::GetFrameLogs();
 	}
@@ -196,6 +200,37 @@ public:
 
     static uint32_t GetFrameIDByHash(uint32_t hash) {
         return GW::UI::GetFrameIDByHash(hash);
+    }
+
+    static uint32_t GetChildFrameByFrameId(uint32_t parent_frame_id, uint32_t child_offset) {
+        GW::UI::Frame* parent = GW::UI::GetFrameById(parent_frame_id);
+        if (!parent)
+            return 0;
+        GW::UI::Frame* child = GW::UI::GetChildFrame(parent, child_offset);
+        return child ? child->frame_id : 0;
+    }
+
+    static uint32_t GetChildFramePathByFrameId(
+        uint32_t parent_frame_id,
+        const std::vector<uint32_t>& child_offsets)
+    {
+        GW::UI::Frame* current = GW::UI::GetFrameById(parent_frame_id);
+        if (!current)
+            return 0;
+        for (uint32_t child_offset : child_offsets) {
+            current = GW::UI::GetChildFrame(current, child_offset);
+            if (!current)
+                return 0;
+        }
+        return current->frame_id;
+    }
+
+    static uint32_t GetParentFrameID(uint32_t frame_id) {
+        GW::UI::Frame* frame = GW::UI::GetFrameById(frame_id);
+        if (!frame)
+            return 0;
+        GW::UI::Frame* parent = GW::UI::GetParentFrame(frame);
+        return parent ? parent->frame_id : 0;
     }
 
     static uint32_t GetHashByLabel(const std::string& label) {
@@ -289,11 +324,33 @@ public:
             label_ptr);
     }
 
+
     static bool DestroyUIComponentByFrameId(uint32_t frame_id) {
         GW::UI::Frame* frame = GW::UI::GetFrameById(frame_id);
         if (!frame)
             return false;
         return GW::UI::DestroyUIComponent(frame);
+    }
+
+    static bool AddFrameUIInteractionCallbackByFrameId(
+        uint32_t frame_id,
+        uintptr_t event_callback,
+        uintptr_t wparam = 0)
+    {
+        GW::UI::Frame* frame = GW::UI::GetFrameById(frame_id);
+        if (!frame)
+            return false;
+        return GW::UI::AddFrameUIInteractionCallback(
+            frame,
+            reinterpret_cast<GW::UI::UIInteractionCallback>(event_callback),
+            reinterpret_cast<void*>(wparam));
+    }
+
+    static bool TriggerFrameRedrawByFrameId(uint32_t frame_id) {
+        GW::UI::Frame* frame = GW::UI::GetFrameById(frame_id);
+        if (!frame)
+            return false;
+        return GW::UI::TriggerFrameRedraw(frame);
     }
 
     static uint32_t CreateButtonFrameByFrameId(
@@ -408,6 +465,63 @@ public:
 	static bool IsWorldMapShowing() {
 		return GW::UI::GetIsWorldMapShowing();
 	}
+
+    static bool IsUIDrawn() {
+        return GW::UI::GetIsUIDrawn();
+    }
+
+    static std::string AsyncDecodeStr(const std::string& enc_str) {
+        std::wstring winput(enc_str.begin(), enc_str.end());
+        std::wstring output;
+        GW::UI::AsyncDecodeStr(winput.c_str(), &output);
+        return std::string(output.begin(), output.end());
+    }
+
+    static bool IsValidEncStr(const std::string& enc_str) {
+        std::wstring winput(enc_str.begin(), enc_str.end());
+        return GW::UI::IsValidEncStr(winput.c_str());
+    }
+
+    static std::string UInt32ToEncStr(uint32_t value) {
+        wchar_t buffer[8] = {0};
+        if (!GW::UI::UInt32ToEncStr(value, buffer, _countof(buffer))) {
+            return "";
+        }
+        std::wstring woutput(buffer);
+        return std::string(woutput.begin(), woutput.end());
+    }
+
+    static uint32_t EncStrToUInt32(const std::string& enc_str) {
+        std::wstring winput(enc_str.begin(), enc_str.end());
+        return GW::UI::EncStrToUInt32(winput.c_str());
+    }
+
+    static void SetOpenLinks(bool toggle) {
+        GW::GameThread::Enqueue([toggle]() {
+            GW::UI::SetOpenLinks(toggle);
+        });
+    }
+
+    static bool DrawOnCompass(
+        uint32_t session_id,
+        const std::vector<std::pair<int, int>>& points)
+    {
+        if (points.empty())
+            return false;
+        std::vector<GW::UI::CompassPoint> compass_points;
+        compass_points.reserve(points.size());
+        for (const auto& point : points) {
+            compass_points.emplace_back(point.first, point.second);
+        }
+        return GW::UI::DrawOnCompass(
+            session_id,
+            static_cast<unsigned>(compass_points.size()),
+            compass_points.data());
+    }
+
+    static uintptr_t GetCurrentTooltipAddress() {
+        return reinterpret_cast<uintptr_t>(GW::UI::GetCurrentTooltip());
+    }
 
     static std::vector<uint32_t> GetPreferenceOptions(uint32_t pref) {
         GW::UI::EnumPreference pref_enum = static_cast<GW::UI::EnumPreference>(pref);

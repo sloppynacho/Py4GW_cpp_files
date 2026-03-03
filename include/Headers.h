@@ -118,6 +118,7 @@
 #include <pybind11/stl.h>
 
 #include "Ini_handler.h"
+#include "SharedMemory.h"
 #include "Timer.h"
 
 #include <commdlg.h>
