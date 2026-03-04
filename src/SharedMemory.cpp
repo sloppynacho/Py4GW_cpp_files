@@ -137,9 +137,12 @@ std::wstring SharedMemoryManager::BuildName(const wchar_t* prefix, DWORD process
     return std::wstring(buffer);
 }
 
+bool SharedMemoryManager::CreateRuntimeRegion(const std::wstring& name) {
+    return Create(name, RuntimeSMStructSize());
+}
 
-bool SharedMemoryManager::CreateAgentArrayRegion(const std::wstring& name) {
-    return Create(name, AgentArraySMStructSize());
+AgentArray_SHMemStruct* SharedMemoryManager::AgentArraySMStruct() const {
+    return PayloadAs<AgentArray_SHMemStruct>(AgentArrayPayloadOffset());
 }
 
 bool SharedMemoryManager::UpdateAgentArrayRegion() {
@@ -154,18 +157,14 @@ bool SharedMemoryManager::UpdateAgentArrayRegion() {
     const auto agents = GW::Agents::GetAgentArray();
     const auto ac = GW::GetAgentContext();
     
-    BeginWrite();
-
     ZeroMemory(payload, sizeof(*payload));
     payload->max_size = agent_array_max_size;
 
     if (!agents || !ac) {
-        EndWrite();
         return false;
     }
 
     if (!is_map_ready) {
-        EndWrite();
         return false;
     }
 
@@ -182,7 +181,6 @@ bool SharedMemoryManager::UpdateAgentArrayRegion() {
         if (!agent) {
             continue;
         }
-
 
         const uint32_t id = agent->agent_id;
         if (!id) {
@@ -202,32 +200,19 @@ bool SharedMemoryManager::UpdateAgentArrayRegion() {
         Agent_SHMemStruct& out = payload->AgentArray[slot];
 
 		out.ptr = reinterpret_cast<uintptr_t>(agent);
-
-        out.Position = agent->pos;
-		out.z = agent->z;
-
-        out.rotation_angle = agent->rotation_angle;
-		out.velocity = agent->velocity;
         out.agent_id = id;
         push_ref(payload->AllArray, id, slot);
 
         if (agent->GetIsGadgetType()) {
-            out.agent_type = 2;
             push_ref(payload->GadgetArray, id, slot);
             continue;
         }
 
         if (agent->GetIsItemType()) {
-            out.agent_type = 1;
-
             const auto item = agent->GetAsAgentItem();
             if (!item) {
                 continue;
             }
-
-            out.item_id = item->item_id;
-            out.owner_id = item->owner;
-            push_ref(payload->ItemArray, id, slot);
 
             if (item->owner != 0) {
                 push_ref(payload->OwnedItemArray, id, slot);
@@ -239,32 +224,12 @@ bool SharedMemoryManager::UpdateAgentArrayRegion() {
             continue;
         }
 
-        out.agent_type = 0;
-
         const auto living = agent->GetAsAgentLiving();
         if (!living) {
             continue;
         }
 
         push_ref(payload->LivingArray, id, slot);
-
-        out.owner_id = static_cast<uint32_t>(living->owner);
-        out.player_number = living->player_number;
-        out.profession[0] = static_cast<uint32_t>(living->primary);
-        out.profession[1] = static_cast<uint32_t>(living->secondary);
-        out.level = living->level;
-        out.EnergyValues[0] = living->energy;
-        out.EnergyValues[1] = living->max_energy;
-        out.EnergyValues[2] = living->energy_regen;
-        out.HPValues[0] = living->hp;
-        out.HPValues[1] = living->max_hp;
-        out.HPValues[2] = static_cast<float>(living->hp_pips);
-        out.login_number = living->login_number;
-        out.allegiance = static_cast<uint32_t>(living->allegiance);
-        out.effects = living->effects;
-        out.type_map = living->type_map;
-        out.model_state = living->model_state;
-        out.casting_skill_id = living->skill;
 
         switch (living->allegiance) {
         case GW::Constants::Allegiance::Ally_NonAttackable:
@@ -296,11 +261,45 @@ bool SharedMemoryManager::UpdateAgentArrayRegion() {
         }
     }
 
-    EndWrite();
-
     return true;
 }
 
-AgentArray_SHMemStruct* SharedMemoryManager::AgentArraySMStruct() const {
-    return PayloadAs<AgentArray_SHMemStruct>();
+Pointers_SHMemStruct* SharedMemoryManager::PointersSMStruct() const {
+    return PayloadAs<Pointers_SHMemStruct>(PointersPayloadOffset());
 }
+
+
+bool SharedMemoryManager::UpdatePointersRegion() {
+	Pointers_SHMemStruct* payload = PointersSMStruct();
+	if (!payload) {
+		return false;
+	}
+
+    //auto instance_type = GW::Map::GetInstanceType();
+    //bool is_map_ready = (GW::Map::GetIsMapLoaded()) && (!GW::Map::GetIsObserving()) && (instance_type != GW::Constants::InstanceType::Loading);
+
+	ZeroMemory(payload, sizeof(*payload));
+
+	//if (!is_map_ready) {
+	//	return false;
+	
+    payload->MapContext = reinterpret_cast<uintptr_t>(GW::GetMapContext());
+    payload->PreGameContext = reinterpret_cast<uintptr_t>(GW::GetPreGameContext());
+	payload->MissionMapContext = reinterpret_cast<uintptr_t>(GW::Map::GetMissionMapContext());
+	payload->WorldMapContext = reinterpret_cast<uintptr_t>(GW::Map::GetWorldMapContext());
+	payload->GameplayContext = reinterpret_cast<uintptr_t>(GW::GetGameplayContext());
+    payload->InstanceInfo = GW::Map::GetInstanceInfoPtr();
+	
+	payload->GameContext = reinterpret_cast<uintptr_t>(GW::GetGameContext());
+	
+	payload->WorldContext = reinterpret_cast<uintptr_t>(GW::GetWorldContext());
+	payload->CharContext = reinterpret_cast<uintptr_t>(GW::GetCharContext());
+	payload->AgentContext = reinterpret_cast<uintptr_t>(GW::GetAgentContext());
+	payload->CinematicContext = reinterpret_cast<uintptr_t>(GW::GetGameContext()->cinematic);
+	payload->GuildContext = reinterpret_cast<uintptr_t>(GW::GetGameContext()->guild);
+	payload->AvailableCharacters = PyPlayer::GetAvailableCharactersPtr();
+	payload->PartyContext = reinterpret_cast<uintptr_t>(GW::GetPartyContext());
+	payload->ServerRegionContext = GW::Map::GetServerRegionPtr();
+	return true;
+}
+

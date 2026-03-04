@@ -106,6 +106,7 @@ namespace GW {
 
         // Get current region you are in.
         GWCA_API GW::Constants::ServerRegion GetRegion();
+		GWCA_API uintptr_t GetServerRegionPtr();
 
         // Can be used to get the instance type for auth server request
         GWCA_API MapTypeInstanceInfo* GetMapTypeInstanceInfo(RegionType map_type);
@@ -145,6 +146,7 @@ namespace GW {
         GWCA_API uint32_t GetFoesToKill();
 
         GWCA_API AreaInfo *GetMapInfo(Constants::MapID map_id = (Constants::MapID)0);
+        GWCA_API uintptr_t GetInstanceInfoPtr();
 
         inline AreaInfo *GetCurrentMapInfo() {
             Constants::MapID map_id = GetMapID();

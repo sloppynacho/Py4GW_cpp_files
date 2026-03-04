@@ -129,6 +129,8 @@ namespace {
         MapDimensions* terrain_info2;
     } *InstanceInfoPtr = 0;
 
+	uintptr_t instance_info_ptr = 0;
+
     void Init() {
 
         //Logger::Instance().LogInfo("############ MapMgrModule initialization started ############");
@@ -146,8 +148,10 @@ namespace {
             area_info_addr = *(AreaInfo**)(address);
 
         address = Scanner::Find("\x6A\x2C\x50\xE8\x00\x00\x00\x00\x83\xC4\x08\xC7", "xxxx????xxxx", +0xd);
-        if (address && Scanner::IsValidPtr(*(uintptr_t*)(address)))
+        if (address && Scanner::IsValidPtr(*(uintptr_t*)(address))) {
             InstanceInfoPtr = *(InstanceInfo**)(address);
+			instance_info_ptr = address;
+        }
 
         address = Scanner::Find("\xd9\x06\x8d\x45\xc8\x83\xc4\x10", "xxxxxxxx", -0x5);
         QueryAltitude_Func = (QueryAltitude_pt)Scanner::FunctionFromNearCall(address);
@@ -365,6 +369,10 @@ namespace GW {
             return region_id_addr ? *region_id_addr : GW::Constants::ServerRegion::Unknown;
         }
 
+		uintptr_t GetServerRegionPtr() {
+			return (uintptr_t)region_id_addr;
+		}
+
         bool GetIsMapUnlocked(Constants::MapID map_id) {
             auto* w = GetWorldContext();
             Array<uint32_t>* unlocked_map = w && w->unlocked_map.valid() ? &w->unlocked_map : nullptr;
@@ -425,6 +433,11 @@ namespace GW {
             }
             return area_info_addr && map_id > Constants::MapID::None && map_id < Constants::MapID::Count ? &area_info_addr[(uint32_t)map_id] : nullptr;
         }
+
+		uintptr_t GetInstanceInfoPtr() {
+            return instance_info_ptr;
+		}
+
 
         bool GetIsInCinematic() {
             auto* g = GetGameContext();

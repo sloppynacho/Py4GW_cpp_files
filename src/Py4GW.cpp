@@ -122,7 +122,8 @@ py::object update_function2;
 py::object draw_function2;
 
 static SharedMemoryManager g_runtime_shared_memory;
-static constexpr size_t k_runtime_shared_memory_size = SharedMemoryManager::AgentArraySMStructSize();
+
+static constexpr size_t k_runtime_shared_memory_size = SharedMemoryManager::RuntimeSMStructSize();
 
 static std::wstring GetRuntimeSharedMemoryNameW() {
     return SharedMemoryManager::BuildName(
@@ -1886,7 +1887,7 @@ bool Py4GW::Initialize() {
     InitializeMerchantCallbacks();
 
     if (!g_runtime_shared_memory.IsValid()) {
-        g_runtime_shared_memory.CreateAgentArrayRegion(GetRuntimeSharedMemoryNameW());
+        g_runtime_shared_memory.CreateRuntimeRegion(GetRuntimeSharedMemoryNameW());
     }
 
     DebugMessage(L"Py4GW, Initialized.");
@@ -1952,13 +1953,15 @@ void Py4GW::Update()
     }
 }
 
-
-
 void Py4GW::Draw(IDirect3DDevice9* device) {
 	frame_id_timestamp = GetTickCount64();
 
+
     if (g_runtime_shared_memory.IsValid()) {
+        g_runtime_shared_memory.BeginWrite();
+		g_runtime_shared_memory.UpdatePointersRegion();
         g_runtime_shared_memory.UpdateAgentArrayRegion();
+        g_runtime_shared_memory.EndWrite();
     }
 
     if (!g_d3d_device)

@@ -1,4 +1,6 @@
 
+#pragma once
+
 class PyPointers {
 public:
 	static uintptr_t GetMissionMapContextPtr();

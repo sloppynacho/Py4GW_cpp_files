@@ -92,6 +92,7 @@ public:
 	uintptr_t GetAgentContextPtr();
     uintptr_t GetCinematicPtr();
 	uintptr_t GetGuildContextPtr();
+	static uintptr_t GetAvailableCharactersPtr();
     
 };
 

@@ -24,29 +24,7 @@ struct TimeSharedMemoryExample {
 #pragma pack(push, 1)
 struct Agent_SHMemStruct {
     uintptr_t ptr = 0;
-	GW::GamePos Position = GW::GamePos(0, 0, 0);
-	float z = 0.0f;
-
-    float rotation_angle = 0.0f;
-	GW::Vec2f velocity = GW::Vec2f(0, 0);
-
-    //Agent Type
-	uint32_t agent_type = 0; // 0=living, 1=item, 2=gadget
     uint32_t agent_id = 0;
-    uint32_t item_id = 0;
-    uint32_t owner_id = 0;
-    uint32_t player_number = 0;
-	uint32_t profession[2] = { 0, 0 };
-    uint32_t level = 0;
-	float EnergyValues[3] = { 0.0f, 0.0f, 0.0f }; // energy, max_energy, energy_regen
-	float HPValues[3] = { 0.0f, 0.0f, 0.0f }; // hp, max_hp, hp_regen
-    uint32_t login_number = 0;
-    uint32_t allegiance = 0;
-    uint32_t effects = 0;
-    uint32_t type_map = 0;
-    uint32_t model_state = 0;
-    uint32_t casting_skill_id = 0;
-
 };
 
 struct AgentRef_SHMemStruct {
@@ -77,6 +55,27 @@ struct AgentArray_SHMemStruct {
     AgentRefArray_SHMemStruct DeadAllyArray = {};
     AgentRefArray_SHMemStruct DeadEnemyArray = {};
 };
+#pragma pack(pop)
+
+#pragma pack(push, 1)
+struct Pointers_SHMemStruct {
+	uintptr_t MissionMapContext = 0;
+	uintptr_t WorldMapContext = 0;
+	uintptr_t GameplayContext = 0;
+	uintptr_t InstanceInfo = 0;
+	uintptr_t MapContext = 0;
+	uintptr_t GameContext = 0;
+	uintptr_t PreGameContext = 0;
+	uintptr_t WorldContext = 0;
+	uintptr_t CharContext = 0;
+	uintptr_t AgentContext = 0;
+	uintptr_t CinematicContext = 0;
+	uintptr_t GuildContext = 0;
+	uintptr_t AvailableCharacters = 0;
+	uintptr_t PartyContext = 0;
+	uintptr_t ServerRegionContext = 0;
+};
+
 #pragma pack(pop)
 
 
@@ -113,17 +112,36 @@ public:
         return static_cast<T*>(PayloadData(offset));
     }
 
+    bool CreateRuntimeRegion(const std::wstring& name);
+
 	//AgentArray
-    bool CreateAgentArrayRegion(const std::wstring& name);
     bool UpdateAgentArrayRegion();
     AgentArray_SHMemStruct* AgentArraySMStruct() const;
 
-    static constexpr size_t AgentArraySMStructSize() {
-        return sizeof(SharedMemoryHeader) + sizeof(AgentArray_SHMemStruct);
+    static constexpr size_t AgentArrayPayloadOffset() {
+        return sizeof(SharedMemoryHeader);
     }
 
+    static constexpr size_t AgentArraySMStructSize() {
+        return sizeof(AgentArray_SHMemStruct);
+    }
 
     static std::wstring BuildName(const wchar_t* prefix, DWORD process_id, HWND window_handle = nullptr);
+
+	// Pointers struct
+	bool UpdatePointersRegion();
+	Pointers_SHMemStruct* PointersSMStruct() const;
+    static constexpr size_t PointersPayloadOffset() {
+        return AgentArrayPayloadOffset() + AgentArraySMStructSize();
+    }
+
+	static constexpr size_t PointersSMStructSize() {
+		return sizeof(Pointers_SHMemStruct);
+	}
+
+    static constexpr size_t RuntimeSMStructSize() {
+        return PointersPayloadOffset() + PointersSMStructSize();
+    }
 
 private:
     HANDLE mapping_handle_ = nullptr;

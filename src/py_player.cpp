@@ -381,6 +381,9 @@ namespace GW {
     }
 }
 
+uintptr_t PyPlayer::GetAvailableCharactersPtr() {
+	return reinterpret_cast<uintptr_t>(GW::AccountMgr::GetAvailableChars());
+}
 
 
 bool PyPlayer::IsAgentIDValid(int agent_id) {
