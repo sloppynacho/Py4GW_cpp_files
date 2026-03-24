@@ -1,6 +1,7 @@
 #include "Py4GW.h"
 
 #include "Headers.h"
+#include "py_dialog.h"
 #include <iostream>
 
 //HeroAI* Py4GW::heroAI = nullptr;
@@ -1885,6 +1886,7 @@ void DrawCompactConsole(bool* new_p_open = nullptr) {
 bool Py4GW::Initialize() {
     py::initialize_interpreter();
     InitializeMerchantCallbacks();
+    Dialog::Initialize();
 
     if (!g_runtime_shared_memory.IsValid()) {
         g_runtime_shared_memory.CreateRuntimeRegion(GetRuntimeSharedMemoryNameW());
@@ -1897,6 +1899,7 @@ bool Py4GW::Initialize() {
 }
 
 void Py4GW::Terminate() {
+    Dialog::Terminate();
     g_runtime_shared_memory.Destroy();
     GW::DisableHooks();
     GW::Terminate();
@@ -1930,7 +1933,8 @@ void Py4GW::Update()
         // Consume the signal so it waits again next time
         g_update_ready = false;
     }
-    
+
+    Dialog::PollMapChange();
 
     // 2. NOW GRAB THE GIL AND EXECUTE
     py::gil_scoped_acquire gil;
