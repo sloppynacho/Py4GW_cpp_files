@@ -439,6 +439,57 @@ void PyParty::UseHeroSkillInstant(uint32_t hero_id, uint32_t skill_slot, uint32_
 
 }
 
+bool PyParty::SetHeroSkillAIEnabled(uint32_t hero_agent_id, uint32_t skill_slot, bool enabled) {
+    using namespace GW;
+
+    if (!hero_agent_id || skill_slot < 1 || skill_slot > 8) {
+        return false;
+    }
+
+    auto skillbars = GW::SkillbarMgr::GetSkillbarArray();
+    if (!skillbars) {
+        return false;
+    }
+
+    const uint32_t zero_based_slot = skill_slot - 1;
+    const uint32_t disabled_bit = 1u << zero_based_slot;
+    GW::Skillbar* hero_skillbar = nullptr;
+    for (auto& skillbar : *skillbars) {
+        if (skillbar.agent_id == hero_agent_id) {
+            hero_skillbar = &skillbar;
+            break;
+        }
+    }
+
+    if (!hero_skillbar) {
+        return false;
+    }
+
+    const bool is_disabled = (hero_skillbar->disabled & disabled_bit) != 0;
+    const bool should_be_disabled = !enabled;
+    if (is_disabled == should_be_disabled) {
+        return true;
+    }
+
+    static CommandHotKeyDisableAi_t CommandHotKeyDisableAi_Func = nullptr;
+    if (!CommandHotKeyDisableAi_Func) {
+        uintptr_t use_addr = GW::Scanner::Find("\x50\x6A\x0C\xC7\x45\xF0\x19\x00\x00\x00", "xxxxxxxxxx", 0);
+        Logger::AssertAddress("CommandHotKeyDisableAi", use_addr);
+        uintptr_t func_addr = use_addr ? GW::Scanner::ToFunctionStart(use_addr) : 0;
+        Logger::AssertAddress("CommandHotKeyDisableAiFunc", func_addr);
+        CommandHotKeyDisableAi_Func = (CommandHotKeyDisableAi_t)func_addr;
+        if (!CommandHotKeyDisableAi_Func) {
+            return false;
+        }
+    }
+
+    auto command_func = CommandHotKeyDisableAi_Func;
+    GW::GameThread::Enqueue([hero_agent_id, zero_based_slot, command_func] {
+        command_func(hero_agent_id, zero_based_slot);
+    });
+    return true;
+}
+
 
 uintptr_t PyParty::GetPartyContextPtr() {
     return reinterpret_cast<uintptr_t>(GW::GetPartyContext());
@@ -593,6 +644,7 @@ void bind_PyParty(py::module_& m) {
         .def("GetPetInfo", &PyParty::GetPetInfo, py::arg("owner_agent_id")) // Bind GetPetInfo method
         .def("GetIsPlayerTicked", &PyParty::GetIsPlayerTicked)
 		.def("UseHeroSkill", &PyParty::UseHeroSkillInstant, py::arg("hero_id"), py::arg("skill_slot"), py::arg("target_id"))  // Bind UseHeroSkillInstant method
+        .def("SetHeroSkillAIEnabled", &PyParty::SetHeroSkillAIEnabled, py::arg("hero_agent_id"), py::arg("skill_slot"), py::arg("enabled"))
 		.def("GetPartyContextPtr", &PyParty::GetPartyContextPtr)  // Bind GetPartyContextPtr method
 
         // Bind public attributes (use snake_case)
