@@ -491,43 +491,16 @@ PYBIND11_EMBEDDED_MODULE(PyUIManager, m) {
 			py::arg("start_index") = 0x20,
 			py::arg("end_index") = 0xFE
 		)
-		.def_static("resolve_devtext_dialog_proc",
-			&UIManager::ResolveDevTextDialogProc
-		)
-		.def_static("resolve_container_frame_proc",
-			&UIManager::ResolveContainerFrameProc
-		)
-		.def_static("create_container_window",
-			&UIManager::CreateContainerWindow,
-			py::arg("x"),
-			py::arg("y"),
-			py::arg("width"),
-			py::arg("height"),
-			py::arg("frame_label") = std::wstring(),
-			py::arg("parent_frame_id") = 9,
-			py::arg("child_index") = 0,
-			py::arg("frame_flags") = 0,
-			py::arg("create_param") = 0,
-			py::arg("anchor_flags") = 0x6
-		)
-		.def_static("resolve_composite_root_control_proc",
-			&UIManager::ResolveCompositeRootControlProc
-		)
-		.def_static("resolve_frame_new_subclass",
-			&UIManager::ResolveFrameNewSubclass
-		)
-		.def_static("resolve_frame_mouse_enable",
-			&UIManager::ResolveFrameMouseEnable,
-			"Resolves FrameMouseEnable (WASM alias; EXE: Ui_UpdateFrameFlagMaskById)"
-		)
+
+
 		.def_static("attach_composite_root_to_frame",
 			&UIManager::AttachCompositeRootToFrame,
 			py::arg("frame_id"),
 			py::arg("title") = std::wstring(),
 			py::arg("subclass_flags") = 0x59
 		)
-		.def_static("create_titled_container_window",
-			&UIManager::CreateTitledContainerWindow,
+		.def_static("CreateNativeWindow",
+			&UIManager::CreateNativeWindow,
 			py::arg("x"),
 			py::arg("y"),
 			py::arg("width"),
@@ -565,7 +538,7 @@ PYBIND11_EMBEDDED_MODULE(PyUIManager, m) {
 			&UIManager::ClearWindowContentsByFrameId,
 			py::arg("root_frame_id")
 		)
-		.def_static("create_window",
+		.def_static("CreateWindowClone",
 			&UIManager::CreateWindowClone,
 			py::arg("x"),
 			py::arg("y"),
@@ -580,7 +553,7 @@ PYBIND11_EMBEDDED_MODULE(PyUIManager, m) {
 			py::arg("anchor_flags") = 0x6,
 			py::arg("ensure_devtext_source") = true
 		)
-		.def_static("create_empty_window",
+		.def_static("CreateEmptyWindowClone",
 			&UIManager::CreateEmptyWindowClone,
 			py::arg("x"),
 			py::arg("y"),
@@ -611,8 +584,8 @@ PYBIND11_EMBEDDED_MODULE(PyUIManager, m) {
 			py::arg("anchor_flags") = 0x6,
 			py::arg("ensure_devtext_source") = true
 		)
-		.def_static("create_titled_empty_window",
-			&UIManager::CreateTitledEmptyWindow,
+		.def_static("create_titled_empty_window_clone",
+			&UIManager::CreateTitledEmptyWindowClone,
 			py::arg("title"),
 			py::arg("x"),
 			py::arg("y"),
