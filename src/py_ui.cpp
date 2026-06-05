@@ -504,18 +504,11 @@ PYBIND11_EMBEDDED_MODULE(PyUIManager, m) {
 		)
 		.def_static("CreateNativeWindow",
 			&UIManager::CreateNativeWindow,
-			py::arg("x"),
-			py::arg("y"),
-			py::arg("width"),
-			py::arg("height"),
-			py::arg("title") = std::wstring(),
-			py::arg("parent_frame_id") = 9,
-			py::arg("child_index") = 0,
-			py::arg("frame_flags") = 0x20,
-			py::arg("create_param") = 0,
-			py::arg("anchor_flags") = 0x6,
-			py::arg("subclass_flags") = 0x59,
-			py::arg("layer") = 0
+			py::arg("content_x"),
+			py::arg("content_y"),
+			py::arg("content_width"),
+			py::arg("content_height"),
+			py::arg("title") = std::wstring()
 		)
 		.def_static("ensure_devtext_source",
 			&UIManager::EnsureDevTextSource
@@ -579,14 +572,7 @@ PYBIND11_EMBEDDED_MODULE(PyUIManager, m) {
 			py::arg("y"),
 			py::arg("width"),
 			py::arg("height"),
-			py::arg("frame_label") = std::wstring(),
-			py::arg("parent_frame_id") = 9,
-			py::arg("child_index") = 0,
-			py::arg("frame_flags") = 0,
-			py::arg("create_param") = 0,
-			py::arg("frame_callback") = 0,
-			py::arg("anchor_flags") = 0x6,
-			py::arg("ensure_devtext_source") = true
+			py::arg("frame_label") = std::wstring()
 		)
 		.def_static("create_titled_empty_window_clone",
 			&UIManager::CreateTitledEmptyWindowClone,
@@ -595,14 +581,7 @@ PYBIND11_EMBEDDED_MODULE(PyUIManager, m) {
 			py::arg("y"),
 			py::arg("width"),
 			py::arg("height"),
-			py::arg("frame_label") = L"CustomWindow",
-			py::arg("parent_frame_id") = 9,
-			py::arg("child_index") = 0,
-			py::arg("frame_flags") = 0,
-			py::arg("create_param") = 0,
-			py::arg("frame_callback") = 0,
-			py::arg("anchor_flags") = 0x6,
-			py::arg("ensure_devtext_source") = true
+			py::arg("frame_label") = L"CustomWindow"
 		)
 		.def_static("set_frame_controller_anchor_margins_by_frame_id_ex",
 			&UIManager::SetFrameControllerAnchorMarginsByFrameIdEx,

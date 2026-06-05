@@ -1804,32 +1804,58 @@ public:
         return true;
     }
 
-    // Creates a titled container window with proper chrome (title bar, resize handles,
-    // close button) via _create_container_window + FrameNewSubclass(Ui_CompositeRootControlProc).
-    //
-    // 2026-06-03 — Window Polish: Added 'layer' parameter.  Passes x, y through to
-    // AttachCompositeRootToFrame for FrameSetPosition override (bypassing anchor drift).
+    // Creates a standalone native window from content-space coordinates.
+    // Inputs are pixel-space content bounds with a top-left origin, matching overlay/UI usage.
+    // The binding expands the bounds to include native chrome, converts them into the game's
+    // logical bottom-left coordinate space, then installs the composite root subclass.
     static uint32_t CreateNativeWindow(
-        float x, float y, float width, float height,
-        const std::wstring& title = L"",
-        uint32_t parent_frame_id = 9,
-        uint32_t child_index = 0,
-        uint32_t frame_flags = 0x20,
-        uintptr_t create_param = 0,
-        uint32_t anchor_flags = 0x6,
-        uint32_t subclass_flags = DEFAULT_SUBCLASS_FLAGS_COMPOSITE_ROOT,
-        int layer = 0)
+        float content_x, float content_y, float content_width, float content_height,
+        const std::wstring& title = L"")
     {
+        constexpr float kLeftBorder = 32.0f;
+        constexpr float kTopTitle = 20.0f;
+        constexpr float kRightBorder = 32.0f;
+        constexpr float kBottomBorder = 32.0f;
+        constexpr uintptr_t kCreateParam = 0;
+        constexpr uint32_t kAnchorFlags = 0x6;
+        constexpr uint32_t kSubclassFlags = DEFAULT_SUBCLASS_FLAGS_COMPOSITE_ROOT;
+        constexpr uint32_t kParentFrameId = 9;
+        constexpr uint32_t kChildIndex = 0;
+        constexpr uint32_t kFrameFlags = 0x20;
+        static int next_layer = 1;
+
+        GW::UI::Frame* root = GW::UI::GetRootFrame();
+        if (!root) {
+            GWCA_ERR("[UI] CreateNativeWindow — root frame unavailable");
+            return 0;
+        }
+
+        const auto viewport_scale = root->position.GetViewportScale(root);
+        const float scale_x = viewport_scale.x != 0.0f ? viewport_scale.x : 1.0f;
+        const float scale_y = viewport_scale.y != 0.0f ? viewport_scale.y : 1.0f;
+        const float pixel_height = root->position.viewport_height * scale_y;
+
+        const float frame_px_x = content_x - kLeftBorder;
+        const float frame_px_y = pixel_height - content_y - content_height - kBottomBorder;
+        const float frame_px_w = content_width + kLeftBorder + kRightBorder;
+        const float frame_px_h = content_height + kTopTitle + kBottomBorder;
+
+        const float engine_x = frame_px_x / scale_x;
+        const float engine_y = frame_px_y / scale_y;
+        const float engine_w = frame_px_w / scale_x;
+        const float engine_h = frame_px_h / scale_y;
+        const int layer = next_layer++;
+
         const uint32_t frame_id = _create_container_window(
-            x, y, width, height, title,
-            parent_frame_id, child_index, frame_flags, create_param, anchor_flags);
+            engine_x, engine_y, engine_w, engine_h, title,
+            kParentFrameId, kChildIndex, kFrameFlags, kCreateParam, kAnchorFlags);
 
         if (!frame_id) {
             GWCA_ERR("[UI] CreateTitledContainerWindow — _create_container_window failed");
             return 0;
         }
 
-        if (!AttachCompositeRootToFrame(frame_id, title, subclass_flags, x, y, layer)) {
+        if (!AttachCompositeRootToFrame(frame_id, title, kSubclassFlags, engine_x, engine_y, layer)) {
             GWCA_ERR("[UI] CreateTitledContainerWindow — AttachCompositeRootToFrame failed, frame_id=%u", frame_id);
             GW::GameThread::Enqueue([frame_id]() {
                 GW::UI::Frame* f = GW::UI::GetFrameById(frame_id);
@@ -2085,15 +2111,16 @@ public:
         float y,
         float width,
         float height,
-        const std::wstring& frame_label = L"",
-        uint32_t parent_frame_id = 9,
-        uint32_t child_index = 0,
-        uint32_t frame_flags = 0,
-        uintptr_t create_param = 0,
-        uintptr_t frame_callback = 0,
-        uint32_t anchor_flags = 0x6,
-        bool ensure_devtext_source = true)
+        const std::wstring& frame_label = L"")
     {
+        constexpr uint32_t kParentFrameId = 9;
+        constexpr uint32_t kChildIndex = 0;
+        constexpr uint32_t kFrameFlags = 0;
+        constexpr uintptr_t kCreateParam = 0;
+        constexpr uintptr_t kFrameCallback = 0;
+        constexpr uint32_t kAnchorFlags = 0x6;
+        constexpr bool kEnsureDevTextSource = true;
+
         if (title.empty())
             return 0;
 
@@ -2105,10 +2132,10 @@ public:
         const uint32_t frame_id = CreateWindowClone(
             x, y, width, height,
             frame_label,
-            parent_frame_id, child_index,
-            frame_flags, create_param,
-            frame_callback, anchor_flags,
-            ensure_devtext_source);
+            kParentFrameId, kChildIndex,
+            kFrameFlags, kCreateParam,
+            kFrameCallback, kAnchorFlags,
+            kEnsureDevTextSource);
 
         if (!frame_id) {
             UIManagerTitleHook::ClearNextCreatedWindowTitle();
@@ -2129,15 +2156,16 @@ public:
         float y,
         float width,
         float height,
-        const std::wstring& frame_label = L"CustomWindow",
-        uint32_t parent_frame_id = 9,
-        uint32_t child_index = 0,
-        uint32_t frame_flags = 0,
-        uintptr_t create_param = 0,
-        uintptr_t frame_callback = 0,
-        uint32_t anchor_flags = 0x6,
-        bool ensure_devtext_source = true)
+        const std::wstring& frame_label = L"CustomWindow")
     {
+        constexpr uint32_t kParentFrameId = 9;
+        constexpr uint32_t kChildIndex = 0;
+        constexpr uint32_t kFrameFlags = 0;
+        constexpr uintptr_t kCreateParam = 0;
+        constexpr uintptr_t kFrameCallback = 0;
+        constexpr uint32_t kAnchorFlags = 0x6;
+        constexpr bool kEnsureDevTextSource = true;
+
         if (title.empty())
             return 0;
 
@@ -2149,10 +2177,10 @@ public:
         const uint32_t frame_id = CreateEmptyWindowClone(
             x, y, width, height,
             frame_label,
-            parent_frame_id, child_index,
-            frame_flags, create_param,
-            frame_callback, anchor_flags,
-            ensure_devtext_source);
+            kParentFrameId, kChildIndex,
+            kFrameFlags, kCreateParam,
+            kFrameCallback, kAnchorFlags,
+            kEnsureDevTextSource);
 
         if (!frame_id) {
             UIManagerTitleHook::ClearNextCreatedWindowTitle();
