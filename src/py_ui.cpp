@@ -857,6 +857,46 @@ PYBIND11_EMBEDDED_MODULE(PyUIManager, m) {
 			py::arg("name_enc") = std::wstring(),
 			py::arg("component_label") = std::wstring()
 		)
+		.def_static("create_dropdown_frame_by_frame_id",
+			&UIManager::CreateDropdownFrameByFrameId,
+			py::arg("parent_frame_id"),
+			py::arg("component_flags") = 0x300,
+			py::arg("child_index") = 0,
+			py::arg("component_label") = std::wstring(),
+			"Create a native DropdownFrame."
+		)
+		.def_static("create_slider_frame_by_frame_id",
+			&UIManager::CreateSliderFrameByFrameId,
+			py::arg("parent_frame_id"),
+			py::arg("component_flags") = 0,
+			py::arg("child_index") = 0,
+			py::arg("component_label") = std::wstring(),
+			"Create a native SliderFrame."
+		)
+		.def_static("create_editable_text_frame_by_frame_id",
+			&UIManager::CreateEditableTextFrameByFrameId,
+			py::arg("parent_frame_id"),
+			py::arg("component_flags") = 0,
+			py::arg("child_index") = 0,
+			py::arg("component_label") = std::wstring(),
+			"Create a native EditableTextFrame."
+		)
+		.def_static("create_progress_bar_by_frame_id",
+			&UIManager::CreateProgressBarByFrameId,
+			py::arg("parent_frame_id"),
+			py::arg("component_flags") = 0x300,
+			py::arg("child_index") = 0,
+			py::arg("component_label") = std::wstring(),
+			"Create a native ProgressBar."
+		)
+		.def_static("create_tabs_frame_by_frame_id",
+			&UIManager::CreateTabsFrameByFrameId,
+			py::arg("parent_frame_id"),
+			py::arg("component_flags") = 0x40000,
+			py::arg("child_index") = 0,
+			py::arg("component_label") = std::wstring(),
+			"Create a native TabsFrame."
+		)
 		.def_static("get_button_label_by_frame_id",
 			&UIManager::GetButtonLabelByFrameId,
 			py::arg("frame_id"))
@@ -1074,6 +1114,17 @@ PYBIND11_EMBEDDED_MODULE(PyUIManager, m) {
 			&UIManager::SetSliderValueByFrameId,
 			py::arg("frame_id"),
 			py::arg("value"))
+		.def_static("set_slider_range_by_frame_id",
+			&UIManager::SetSliderRangeByFrameId,
+			py::arg("frame_id"),
+			py::arg("min_val"),
+			py::arg("max_val"))
+		.def_static("frame_set_size_by_frame_id",
+			&UIManager::FrameSetSizeByFrameId,
+			py::arg("frame_id"),
+			py::arg("width"),
+			py::arg("height"),
+			"Set a frame's dimensions via native FrameSetSize.")
 		.def_static("create_text_label_frame_with_plain_text_by_frame_id",
 			&UIManager::CreateTextLabelFrameWithPlainTextByFrameId,
 			py::arg("parent_frame_id"),

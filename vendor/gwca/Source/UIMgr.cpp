@@ -92,6 +92,8 @@ namespace {
     CreateUIComponent_pt CreateUIComponent_Ret = 0;
     typedef bool(__cdecl* DestroyUIComponent_pt)(uint32_t frame_id);
     DestroyUIComponent_pt DestroyUIComponent_Func = 0;
+    typedef uint32_t(__cdecl* FrameNewSubclass_pt)(uint32_t frame_id, void* subclass_proc, uint32_t msg_id);
+    FrameNewSubclass_pt FrameNewSubclass_Func = 0;
 
     struct CreateUIComponentCallbackEntry {
         int altitude;
@@ -1375,6 +1377,12 @@ namespace GW {
             UIInteractionCallback ScrollableFrame_Callback = nullptr;
             UIInteractionCallback TextLabelFrame_Callback = nullptr;
             UIInteractionCallback FrameList_Callback = nullptr;
+            UIInteractionCallback DropdownFrame_Callback = nullptr;
+            UIInteractionCallback SliderFrame_Callback = nullptr;
+            UIInteractionCallback EditableTextFrame_Callback = nullptr;
+            UIInteractionCallback ProgressBar_Callback = nullptr;
+            UIInteractionCallback TabsFrame_Callback = nullptr;
+            UIInteractionCallback SliderFrame_WrapperCallback = nullptr;
             bool TypedComponentCallbacks_Initialized = false;
 
             struct TypedScrollablePageContext {
@@ -1417,6 +1425,65 @@ namespace GW {
                     0, 0);
                 if (addr)
                     FrameList_Callback = reinterpret_cast<UIInteractionCallback>(Scanner::ToFunctionStart(addr, 0xFFF));
+
+                addr = Scanner::FindAssertion(
+                    "UiCtlDropMenu.cpp",
+                    "!FrameGetChild(thisFrame, CTL_LIST_ENTRIES)",
+                    0, 0);
+                if (addr)
+                    DropdownFrame_Callback = reinterpret_cast<UIInteractionCallback>(Scanner::ToFunctionStart(addr, 0xFFF));
+
+                // SliderFrame_Callback: CtlSliderProc (primary FrameProc).
+                // Handles msg 0x09 (allocates CtlSlider::CInstance), mouse/keyboard,
+                // SetRange/SetValue (0x56/0x57), animation. Assertion string in CtlSlider.cpp.
+                addr = Scanner::FindAssertion(
+                    "CtlSlider.cpp",
+                    "value >= m_range.min",
+                    0, 0);
+                if (addr)
+                    SliderFrame_Callback = reinterpret_cast<UIInteractionCallback>(Scanner::ToFunctionStart(addr, 0xFFF));
+
+                // SliderFrame_WrapperCallback: IUi::UiCtlSliderProc — paint wrapper (used via FrameNewSubclass).
+                // Handles textured paint (bar+thumb via FrameContentAddImageTemplate) and invalidation (msg 0x0C).
+                // Byte pattern: unique prologue of IUi::UiCtlSliderProc @ 0x0087f440.
+                addr = Scanner::Find(
+                    "\x55\x8B\xEC\x83\xEC\x18\x53\x8B\x5D\x08\x56\x57\x8B\x43\x04\x48\x83\xF8\x58",
+                    "xxxxxxxxxxxxxxxxxxx",
+                    0);
+                if (addr)
+                    SliderFrame_WrapperCallback = reinterpret_cast<UIInteractionCallback>(addr);
+
+                addr = Scanner::FindAssertion(
+                    "UiCtlEditBox.cpp",
+                    "!s_editCaretMaterial",
+                    0, 0);
+                if (addr)
+                    EditableTextFrame_Callback = reinterpret_cast<UIInteractionCallback>(Scanner::ToFunctionStart(addr, 0xFFF));
+
+                addr = Scanner::FindAssertion(
+                    "UiCtlProgress.cpp",
+                    "!sm_rateArrowImageList",
+                    0, 0);
+                if (addr)
+                    ProgressBar_Callback = reinterpret_cast<UIInteractionCallback>(Scanner::ToFunctionStart(addr, 0xFFF));
+
+                addr = Scanner::FindAssertion(
+                    "CtlPage.cpp",
+                    "!IsBtnCode(pageCode)",
+                    0, 0);
+                if (addr)
+                    TabsFrame_Callback = reinterpret_cast<UIInteractionCallback>(Scanner::ToFunctionStart(addr, 0xFFF));
+
+                // FrameNewSubclass: native Ui_AttachCurrentHandlerSlot @ 0x0062f150.
+                // Registers a subclass FrameProc that intercepts messages before the primary.
+                // Used here to layer IUi::UiCtlSliderProc (paint/invalidation) over CtlSliderProc (creation/values).
+                if (!FrameNewSubclass_Func) {
+                    uintptr_t fn_addr = Scanner::Find(
+                        "\x8D\xB8\xA8\x00\x00\x00\x8B\xCF",
+                        "xxxxxxxx", -0x2D);
+                    if (fn_addr)
+                        FrameNewSubclass_Func = reinterpret_cast<FrameNewSubclass_pt>(fn_addr);
+                }
 
                 addr = Scanner::FindAssertion(
                     "FrApi.cpp",
@@ -1914,6 +1981,104 @@ namespace GW {
         }
         Frame* CreateTextLabelFrame(Frame* parent, uint32_t component_flags, uint32_t child_index, wchar_t* name_enc, wchar_t* component_label) {
             return parent ? CreateTextLabelFrame(parent->frame_id, component_flags, child_index, name_enc, component_label) : nullptr;
+        }
+        Frame* CreateDropdownFrame(uint32_t parent_frame_id, uint32_t component_flags, uint32_t child_index, wchar_t* component_label) {
+            InitializeTypedComponentCallbacks();
+            if (!DropdownFrame_Callback)
+                return nullptr;
+            auto* parent = GetFrameById(parent_frame_id);
+            if (!parent)
+                return nullptr;
+            auto existing = GetChildFrame(parent, child_index);
+            while (existing) {
+                child_index += 1;
+                existing = GetChildFrame(parent, child_index);
+            }
+            const auto frame_id = CreateUIComponent(parent_frame_id, component_flags, child_index, DropdownFrame_Callback, nullptr, component_label);
+            return frame_id ? GetFrameById(frame_id) : nullptr;
+        }
+        Frame* CreateDropdownFrame(Frame* parent, uint32_t component_flags, uint32_t child_index, wchar_t* component_label) {
+            return parent ? CreateDropdownFrame(parent->frame_id, component_flags, child_index, component_label) : nullptr;
+        }
+        Frame* CreateSliderFrame(uint32_t parent_frame_id, uint32_t component_flags, uint32_t child_index, wchar_t* component_label) {
+            InitializeTypedComponentCallbacks();
+            if (!SliderFrame_Callback)
+                return nullptr;
+            auto* parent = GetFrameById(parent_frame_id);
+            if (!parent)
+                return nullptr;
+            auto existing = GetChildFrame(parent, child_index);
+            while (existing) {
+                child_index += 1;
+                existing = GetChildFrame(parent, child_index);
+            }
+            const auto frame_id = CreateUIComponent(parent_frame_id, component_flags, child_index, SliderFrame_Callback, nullptr, component_label);
+            if (frame_id && SliderFrame_WrapperCallback && FrameNewSubclass_Func) {
+                // Layer IUi::UiCtlSliderProc as subclass for textured paint + invalidation.
+                // CtlSliderProc (primary) handles creation (msg 0x09, allocates CInstance),
+                // SetRange/SetValue (0x56/0x57), mouse/keyboard, animation.
+                // IUi::UiCtlSliderProc (subclass) handles textured paint (0x01, bar+thumb)
+                // and invalidation (0x0C).
+                FrameNewSubclass_Func(frame_id, reinterpret_cast<void*>(SliderFrame_WrapperCallback), 0);
+            }
+            return frame_id ? GetFrameById(frame_id) : nullptr;
+        }
+        Frame* CreateSliderFrame(Frame* parent, uint32_t component_flags, uint32_t child_index, wchar_t* component_label) {
+            return parent ? CreateSliderFrame(parent->frame_id, component_flags, child_index, component_label) : nullptr;
+        }
+        Frame* CreateEditableTextFrame(uint32_t parent_frame_id, uint32_t component_flags, uint32_t child_index, wchar_t* component_label) {
+            InitializeTypedComponentCallbacks();
+            if (!EditableTextFrame_Callback)
+                return nullptr;
+            auto* parent = GetFrameById(parent_frame_id);
+            if (!parent)
+                return nullptr;
+            auto existing = GetChildFrame(parent, child_index);
+            while (existing) {
+                child_index += 1;
+                existing = GetChildFrame(parent, child_index);
+            }
+            const auto frame_id = CreateUIComponent(parent_frame_id, component_flags, child_index, EditableTextFrame_Callback, nullptr, component_label);
+            return frame_id ? GetFrameById(frame_id) : nullptr;
+        }
+        Frame* CreateEditableTextFrame(Frame* parent, uint32_t component_flags, uint32_t child_index, wchar_t* component_label) {
+            return parent ? CreateEditableTextFrame(parent->frame_id, component_flags, child_index, component_label) : nullptr;
+        }
+        Frame* CreateProgressBar(uint32_t parent_frame_id, uint32_t component_flags, uint32_t child_index, wchar_t* component_label) {
+            InitializeTypedComponentCallbacks();
+            if (!ProgressBar_Callback)
+                return nullptr;
+            auto* parent = GetFrameById(parent_frame_id);
+            if (!parent)
+                return nullptr;
+            auto existing = GetChildFrame(parent, child_index);
+            while (existing) {
+                child_index += 1;
+                existing = GetChildFrame(parent, child_index);
+            }
+            const auto frame_id = CreateUIComponent(parent_frame_id, component_flags, child_index, ProgressBar_Callback, nullptr, component_label);
+            return frame_id ? GetFrameById(frame_id) : nullptr;
+        }
+        Frame* CreateProgressBar(Frame* parent, uint32_t component_flags, uint32_t child_index, wchar_t* component_label) {
+            return parent ? CreateProgressBar(parent->frame_id, component_flags, child_index, component_label) : nullptr;
+        }
+        Frame* CreateTabsFrame(uint32_t parent_frame_id, uint32_t component_flags, uint32_t child_index, wchar_t* component_label) {
+            InitializeTypedComponentCallbacks();
+            if (!TabsFrame_Callback)
+                return nullptr;
+            auto* parent = GetFrameById(parent_frame_id);
+            if (!parent)
+                return nullptr;
+            auto existing = GetChildFrame(parent, child_index);
+            while (existing) {
+                child_index += 1;
+                existing = GetChildFrame(parent, child_index);
+            }
+            const auto frame_id = CreateUIComponent(parent_frame_id, component_flags, child_index, TabsFrame_Callback, nullptr, component_label);
+            return frame_id ? GetFrameById(frame_id) : nullptr;
+        }
+        Frame* CreateTabsFrame(Frame* parent, uint32_t component_flags, uint32_t child_index, wchar_t* component_label) {
+            return parent ? CreateTabsFrame(parent->frame_id, component_flags, child_index, component_label) : nullptr;
         }
         void* GetFrameContext(Frame* frame) {
             auto* callbacks = reinterpret_cast<Array<FrameInteractionCallback>*>(&frame->frame_callbacks);
@@ -2864,6 +3029,10 @@ namespace GW {
         return MouseAction(UI::UIPacket::ActionState::MouseDoubleClick);
     }
 
+    TabsFrame* TabsFrame::Create(uint32_t parent_frame_id, uint32_t flags, uint32_t child_offset_id, const wchar_t* frame_label) {
+        return reinterpret_cast<TabsFrame*>(UI::CreateTabsFrame(parent_frame_id, flags, child_offset_id, const_cast<wchar_t*>(frame_label)));
+    }
+
     UI::Frame* TabsFrame::AddTab(const wchar_t* tab_name_enc, uint32_t flags, uint32_t child_offset_id, GW::UI::UIInteractionCallback callback, void* wparam) {
         struct AddTabArgs {
             const wchar_t* tab_name_enc;
@@ -3175,6 +3344,10 @@ namespace GW {
         return GetPage();
     }
 
+    EditableTextFrame* EditableTextFrame::Create(uint32_t parent_frame_id, uint32_t flags, uint32_t child_offset_id, const wchar_t* frame_label) {
+        return reinterpret_cast<EditableTextFrame*>(UI::CreateEditableTextFrame(parent_frame_id, flags, child_offset_id, const_cast<wchar_t*>(frame_label)));
+    }
+
     const wchar_t* EditableTextFrame::GetValue() {
         auto* context = UI::GetFrameContext(this);
         return context ? *reinterpret_cast<const wchar_t**>(reinterpret_cast<uintptr_t>(context) + 0x48) : nullptr;
@@ -3199,6 +3372,10 @@ namespace GW {
 
     bool EditableTextFrame::SetReadOnly(bool readonly) {
         return UI::SendFrameUIMessage(this, UI::UIMessage(static_cast<uint32_t>(0x5b)), reinterpret_cast<void*>(static_cast<uintptr_t>(readonly)), nullptr);
+    }
+
+    ProgressBar* ProgressBar::Create(uint32_t parent_frame_id, uint32_t flags, uint32_t child_offset_id, const wchar_t* frame_label) {
+        return reinterpret_cast<ProgressBar*>(UI::CreateProgressBar(parent_frame_id, flags, child_offset_id, const_cast<wchar_t*>(frame_label)));
     }
 
     uint32_t ProgressBar::GetValue() {
@@ -3329,6 +3506,10 @@ namespace GW {
 
     bool CheckboxFrame::SetValue(uint32_t value) {
         return SetChecked(value != 0);
+    }
+
+    DropdownFrame* DropdownFrame::Create(uint32_t parent_frame_id, uint32_t flags, uint32_t child_offset_id, const wchar_t* frame_label) {
+        return reinterpret_cast<DropdownFrame*>(UI::CreateDropdownFrame(parent_frame_id, flags, child_offset_id, const_cast<wchar_t*>(frame_label)));
     }
 
     std::vector<uint32_t> DropdownFrame::GetOptions() {
@@ -3470,6 +3651,10 @@ namespace GW {
 
     bool DropdownFrame::SetValue(uint32_t value) {
         return SelectOption(value);
+    }
+
+    SliderFrame* SliderFrame::Create(uint32_t parent_frame_id, uint32_t flags, uint32_t child_offset_id, const wchar_t* frame_label) {
+        return reinterpret_cast<SliderFrame*>(UI::CreateSliderFrame(parent_frame_id, flags, child_offset_id, const_cast<wchar_t*>(frame_label)));
     }
 
     bool SliderFrame::GetValue(uint32_t* selected_value) {

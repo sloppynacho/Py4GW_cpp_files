@@ -1647,6 +1647,36 @@ public:
         return 0;
     }
 
+    // Resolves FrameSetSize (EXE 0x0062f9a0) — sets a frame's dimensions.
+    // WASM: FrameSetSize(unsigned int, Coord2f const&) @ ram:809a9c14
+    // Assertion: FrApi.cpp, "frameId", line 0x880
+    // Takes (uint32_t frame_id, Coord2f* size).
+    static uint32_t ResolveFrameSetSize()
+    {
+        static uint32_t cached_proc = 0;
+        if (cached_proc)
+            return cached_proc;
+
+        uintptr_t addr = 0;
+        try {
+            addr = GW::Scanner::FindAssertion(
+                "\\Code\\Engine\\Frame\\FrApi.cpp", "frameId", 0x880, 0);
+        } catch (...) {
+            addr = 0;
+        }
+        if (addr) {
+            const uintptr_t fn_start = GW::Scanner::ToFunctionStart(addr, 0x100);
+            if (fn_start) {
+                cached_proc = static_cast<uint32_t>(fn_start);
+                Logger::AssertAddress("FrameSetSize", cached_proc, "UIModule");
+                return cached_proc;
+            }
+        }
+
+        GWCA_ERR("[SCAN] ResolveFrameSetSize — assertion not found");
+        return 0;
+    }
+
     // Resolves FrameGetClientBorder (EXE 0x0062D000).
     // WASM: FrameGetClientBorder(unsigned int) @ ram:809a8164
     // Assertion: FrApi.cpp, "frameId", line 0x7dd
@@ -3045,6 +3075,81 @@ public:
         return frame->frame_id;
     }
 
+    // Creates a native dropdown frame.
+    static uint32_t CreateDropdownFrameByFrameId(
+        uint32_t parent_frame_id,
+        uint32_t component_flags = 0x300,
+        uint32_t child_index = 0,
+        const std::wstring& component_label = L"")
+    {
+        auto* frame = GW::DropdownFrame::Create(
+            parent_frame_id,
+            component_flags,
+            child_index,
+            component_label.empty() ? nullptr : component_label.c_str());
+        return frame ? frame->frame_id : 0;
+    }
+
+    // Creates a native slider frame.
+    static uint32_t CreateSliderFrameByFrameId(
+        uint32_t parent_frame_id,
+        uint32_t component_flags = 0,
+        uint32_t child_index = 0,
+        const std::wstring& component_label = L"")
+    {
+        auto* frame = GW::SliderFrame::Create(
+            parent_frame_id,
+            component_flags,
+            child_index,
+            component_label.empty() ? nullptr : component_label.c_str());
+        return frame ? frame->frame_id : 0;
+    }
+
+    // Creates a native editable text frame.
+    static uint32_t CreateEditableTextFrameByFrameId(
+        uint32_t parent_frame_id,
+        uint32_t component_flags = 0,
+        uint32_t child_index = 0,
+        const std::wstring& component_label = L"")
+    {
+        auto* frame = GW::EditableTextFrame::Create(
+            parent_frame_id,
+            component_flags,
+            child_index,
+            component_label.empty() ? nullptr : component_label.c_str());
+        return frame ? frame->frame_id : 0;
+    }
+
+    // Creates a native progress bar frame.
+    static uint32_t CreateProgressBarByFrameId(
+        uint32_t parent_frame_id,
+        uint32_t component_flags = 0x300,
+        uint32_t child_index = 0,
+        const std::wstring& component_label = L"")
+    {
+        auto* frame = GW::ProgressBar::Create(
+            parent_frame_id,
+            component_flags,
+            child_index,
+            component_label.empty() ? nullptr : component_label.c_str());
+        return frame ? frame->frame_id : 0;
+    }
+
+    // Creates a native tabs frame.
+    static uint32_t CreateTabsFrameByFrameId(
+        uint32_t parent_frame_id,
+        uint32_t component_flags = 0x40000,
+        uint32_t child_index = 0,
+        const std::wstring& component_label = L"")
+    {
+        auto* frame = GW::TabsFrame::Create(
+            parent_frame_id,
+            component_flags,
+            child_index,
+            component_label.empty() ? nullptr : component_label.c_str());
+        return frame ? frame->frame_id : 0;
+    }
+
     static std::wstring GetButtonLabelByFrameId(uint32_t frame_id) {
         auto* frame = reinterpret_cast<GW::ButtonFrame*>(GW::UI::GetFrameById(frame_id));
         if (!frame) {
@@ -3368,15 +3473,68 @@ public:
     }
 
     static uint32_t GetSliderValueByFrameId(uint32_t frame_id) {
-        auto* frame = reinterpret_cast<GW::SliderFrame*>(GW::UI::GetFrameById(frame_id));
-        return frame ? frame->GetValue() : 0;
+        GW::UI::Frame* frame = GW::UI::GetFrameById(frame_id);
+        if (!frame) return 0;
+        uint32_t value = 0;
+        GW::UI::SendFrameUIMessage(
+            frame, static_cast<GW::UI::UIMessage>(0x58),
+            &value, nullptr);
+        return value;
     }
 
     static bool SetSliderValueByFrameId(uint32_t frame_id, uint32_t value) {
-        auto* frame = reinterpret_cast<GW::SliderFrame*>(GW::UI::GetFrameById(frame_id));
-        return frame && frame->SetValue(value);
+        GW::UI::Frame* frame = GW::UI::GetFrameById(frame_id);
+        if (!frame) return false;
+        return GW::UI::SendFrameUIMessage(
+            frame, static_cast<GW::UI::UIMessage>(0x57),
+            reinterpret_cast<void*>(static_cast<uintptr_t>(value)), nullptr);
     }
 
+    // Sets the valid integer range for a slider (msg 0x56).
+    // MUST be called before SetSliderValueByFrameId to avoid divide-by-zero.
+    static bool SetSliderRangeByFrameId(uint32_t frame_id, uint32_t min_val, uint32_t max_val) {
+        GW::UI::Frame* frame = GW::UI::GetFrameById(frame_id);
+        if (!frame) return false;
+        struct { uint32_t min; uint32_t max; } range = { min_val, max_val };
+        return GW::UI::SendFrameUIMessage(
+            frame, static_cast<GW::UI::UIMessage>(0x56),
+            &range, nullptr);
+    }
+
+    // Sets a frame's size via the native FrameSetSize (EXE 0x0062f9a0).
+    // Takes a frame_id and width/height in float. Uses Coord2f internally.
+    // Resolved via FindAssertion("FrApi.cpp", "frameId", 0x880) — same FrApi anchoring
+    // approach as FrameSetLayer and FrameSetPosition.
+    static bool FrameSetSizeByFrameId(uint32_t frame_id, float width, float height)
+    {
+        using FrameSetSize_pt = void(__cdecl*)(uint32_t, Coord2f*);
+
+        static FrameSetSize_pt fn = nullptr;
+        if (!fn) {
+            const auto addr = ResolveFrameSetSize();
+            if (!addr)
+                return false;
+            fn = reinterpret_cast<FrameSetSize_pt>(addr);
+        }
+
+        GW::UI::Frame* frame = GW::UI::GetFrameById(frame_id);
+        if (!(frame && frame->IsCreated()))
+            return false;
+
+        Coord2f size = { width, height };
+        fn(frame_id, &size);
+        return true;
+    }
+
+    // Creates a slider frame with full initialization: position, size, range, and value.
+    // One-step creation that avoids the divide-by-zero crash from calling SetValue before
+    // SetRange. Uses direct SendFrameUIMessage for range/value to avoid GWCA struct cast.
+    //
+    // Steps:
+    //   1. GW::SliderFrame::Create(parent_frame_id, 0x300, child_index, label)
+    //   2. FrameSetPosition(frame_id, &{x, y}) via ResolveFrameSetPositionCoord2f
+    //   3. FrameSetSize(frame_id, &{w, h}) via ResolveFrameSetSize
+    //   4. SendFrameUIMessage(0x56, &{0, 100}) — SetRange(0, 100)
     // Creates a text-label frame by first encoding plain text into a literal payload.
     static uint32_t CreateTextLabelFrameWithPlainTextByFrameId(
         uint32_t parent_frame_id,

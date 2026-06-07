@@ -1467,6 +1467,7 @@ namespace GW {
     };
 
     struct TabsFrame : UI::Frame {
+        GWCA_API static TabsFrame* Create(uint32_t parent_frame_id, uint32_t flags = 0x40000, uint32_t child_offset_id = 0xff, const wchar_t* frame_label = nullptr);
         GWCA_API GW::UI::Frame* AddTab(const wchar_t* tab_name_enc, uint32_t flags, uint32_t child_offset_id, GW::UI::UIInteractionCallback callback, void* wparam = 0);
         GWCA_API bool DisableTab(uint32_t tab_id);
         GWCA_API bool EnableTab(uint32_t tab_id);
@@ -1522,6 +1523,7 @@ namespace GW {
     };
 
     struct EditableTextFrame : UI::Frame {
+        GWCA_API static EditableTextFrame* Create(uint32_t parent_frame_id, uint32_t flags = 0, uint32_t child_offset_id = 0xff, const wchar_t* frame_label = nullptr);
         GWCA_API const wchar_t* GetValue();
         GWCA_API bool SetValue(const wchar_t* value);
         GWCA_API bool SetMaxLength(uint32_t max_length);
@@ -1530,6 +1532,7 @@ namespace GW {
     };
 
     struct ProgressBar final : ButtonFrame, FrameWithValue {
+        GWCA_API static ProgressBar* Create(uint32_t parent_frame_id, uint32_t flags = 0x300, uint32_t child_offset_id = 0xff, const wchar_t* frame_label = nullptr);
         GWCA_API uint32_t GetValue() override;
         GWCA_API bool SetValue(uint32_t value) override;
         GWCA_API bool SetMax(uint32_t value);
@@ -1572,6 +1575,7 @@ namespace GW {
     };
 
     struct DropdownFrame final : UI::Frame, FrameWithValue {
+        GWCA_API static DropdownFrame* Create(uint32_t parent_frame_id, uint32_t flags = 0x300, uint32_t child_offset_id = 0xff, const wchar_t* frame_label = nullptr);
         GWCA_API std::vector<uint32_t> GetOptions();
         GWCA_API bool SelectOption(uint32_t value);
         GWCA_API bool SelectIndex(uint32_t index);
@@ -1587,6 +1591,7 @@ namespace GW {
     };
 
     struct SliderFrame final : UI::Frame, FrameWithValue {
+        GWCA_API static SliderFrame* Create(uint32_t parent_frame_id, uint32_t flags = 0, uint32_t child_offset_id = 0xff, const wchar_t* frame_label = nullptr);
         GWCA_API bool GetValue(uint32_t* selected_value);
         GWCA_API bool SetValue(uint32_t value) override;
 
