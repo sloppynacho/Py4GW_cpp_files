@@ -1,7 +1,9 @@
 #include "Py4GW.h"
 
 #include "Headers.h"
+#include "FrameClock.h"
 #include "py_dialog.h"
+#include "name_obfuscation.h"
 #include <iostream>
 
 //HeroAI* Py4GW::heroAI = nullptr;
@@ -326,7 +328,7 @@ public:
 };
 
 static profiler py4gw_profiler;
-static uint64_t frame_id_timestamp;
+namespace frame_clock { uint64_t g_frame_id_timestamp; }
 
 static std::vector<std::string> GetProfilerMetricNames() {
 	return profiler::GetMetricNames();
@@ -654,7 +656,7 @@ bool ChangeWorkingDirectory(const std::string& new_directory) {
 }
 
 static uint64_t Get_Tick_Count64() {
-    return frame_id_timestamp ? frame_id_timestamp : GetTickCount64();
+    return frame_clock::GetFrameTimestamp();
 }
 HWND Py4GW::get_gw_window_handle() {
     return GW::MemoryMgr::GetGWWindowHandle();
@@ -923,7 +925,7 @@ void ExecutePythonScript_Update()
     if (update_function && !update_function.is_none()) {
 		py4gw_profiler.start("Update.Console.Update");
         CallPythonFunctionSafe(update_function, "update()", script_state);
-		py4gw_profiler.end(frame_id_timestamp, "Update.Console.Update");
+		py4gw_profiler.end(frame_clock::g_frame_id_timestamp, "Update.Console.Update");
         //return;
     }
 
@@ -937,7 +939,7 @@ void ExecutePythonScript_Draw()
     if (draw_function && !draw_function.is_none()) {
 		py4gw_profiler.start("Draw.Console.Draw");
         CallPythonFunctionSafe(draw_function, "draw()", script_state);
-		py4gw_profiler.end(frame_id_timestamp, "Draw.Console.Draw");
+		py4gw_profiler.end(frame_clock::g_frame_id_timestamp, "Draw.Console.Draw");
         //return;
     }
 
@@ -945,7 +947,7 @@ void ExecutePythonScript_Draw()
     if (main_function && !main_function.is_none()) {
 		py4gw_profiler.start("Draw.Console.Main");
         CallPythonFunctionSafe(main_function, "main()", script_state);
-		py4gw_profiler.end(frame_id_timestamp, "Draw.Console.Main");
+		py4gw_profiler.end(frame_clock::g_frame_id_timestamp, "Draw.Console.Main");
     }
 }
 
@@ -954,7 +956,7 @@ void ExecutePythonScript2_Update()
     if (update_function2 && !update_function2.is_none()) {
 		py4gw_profiler.start("Update.WidgetManager.Update");
         CallPythonFunctionSafe(update_function2, "update2()", script_state2);
-		py4gw_profiler.end(frame_id_timestamp, "Update.WidgetManager.Update");
+		py4gw_profiler.end(frame_clock::g_frame_id_timestamp, "Update.WidgetManager.Update");
     }
 }
 
@@ -963,14 +965,14 @@ void ExecutePythonScript2_Draw()
     if (draw_function2 && !draw_function2.is_none()) {
         py4gw_profiler.start("Draw.WidgetManager.Draw");
         CallPythonFunctionSafe(draw_function2, "draw2()", script_state2);
-		py4gw_profiler.end(frame_id_timestamp, "Draw.WidgetManager.Draw");
+		py4gw_profiler.end(frame_clock::g_frame_id_timestamp, "Draw.WidgetManager.Draw");
         //return;
     }
 
     if (main_function2 && !main_function2.is_none()) {
         py4gw_profiler.start("Draw.WidgetManager.Main");
         CallPythonFunctionSafe(main_function2, "main2()", script_state2);
-		py4gw_profiler.end(frame_id_timestamp, "Draw.WidgetManager.Main");
+		py4gw_profiler.end(frame_clock::g_frame_id_timestamp, "Draw.WidgetManager.Main");
     }
 }
 
@@ -1360,7 +1362,7 @@ public:
             }
 
             // ---- PROFILING STOP ----
-            py4gw_profiler.end(frame_id_timestamp, full_prof_name.c_str());
+            py4gw_profiler.end(frame_clock::g_frame_id_timestamp, full_prof_name.c_str());
         }
     }
 
@@ -1891,6 +1893,7 @@ bool Py4GW::Initialize() {
     py::initialize_interpreter();
     InitializeMerchantCallbacks();
     Dialog::Initialize();
+    NameObfuscation::Instance().Init();
 
     if (!g_runtime_shared_memory.IsValid()) {
         g_runtime_shared_memory.CreateRuntimeRegion(GetRuntimeSharedMemoryNameW());
@@ -1904,6 +1907,7 @@ bool Py4GW::Initialize() {
 
 void Py4GW::Terminate() {
     Dialog::Terminate();
+    NameObfuscation::Instance().Shutdown();
     g_runtime_shared_memory.Destroy();
     GW::DisableHooks();
     GW::Terminate();
@@ -1951,18 +1955,18 @@ void Py4GW::Update()
     if (script_state == ScriptState::Running && !script_content.empty()) {
         py4gw_profiler.start("Update.Console");
         ExecutePythonScript_Update();
-        py4gw_profiler.end(frame_id_timestamp, "Update.Console");
+        py4gw_profiler.end(frame_clock::g_frame_id_timestamp, "Update.Console");
     }
 
     if (script_state2 == ScriptState::Running && !script_content2.empty()) {
         py4gw_profiler.start("Update.WidgetManager");
         ExecutePythonScript2_Update();
-        py4gw_profiler.end(frame_id_timestamp, "Update.WidgetManager");
+        py4gw_profiler.end(frame_clock::g_frame_id_timestamp, "Update.WidgetManager");
     }
 }
 
 void Py4GW::Draw(IDirect3DDevice9* device) {
-	frame_id_timestamp = GetTickCount64();
+	frame_clock::g_frame_id_timestamp = GetTickCount64();
 
 
     if (g_runtime_shared_memory.IsValid()) {
@@ -2177,7 +2181,7 @@ void Py4GW::Draw(IDirect3DDevice9* device) {
                 mixed_deferred.action();
             }
 
-            py4gw_profiler.end(frame_id_timestamp, "Draw.Deferred.Draw");
+            py4gw_profiler.end(frame_clock::g_frame_id_timestamp, "Draw.Deferred.Draw");
 
             mixed_deferred.active = false;
         }
@@ -2358,7 +2362,7 @@ PYBIND11_EMBEDDED_MODULE(Py4GW, m)
     py::module_ console = m.def_submodule("Console", "Submodule for console logging");
 	py::module_ game = m.def_submodule("Game", "Submodule for game functions");
     py::module_ ui = m.def_submodule("UI", "Submodule for schema-driven UI");
-    
+
     bind_Game(game);
 	bind_Console(console);
     bind_UI(ui);
