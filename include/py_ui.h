@@ -129,6 +129,82 @@ inline bool ResolveSetFrameText(SetFrameTextResolved& out)
     return out.set_frame_text_fn != nullptr;
 }
 
+// ============================================================================
+// Window Contents — Shared Resolvers (2026-06-04)
+// ============================================================================
+// CtlFrameListCreateItem  @ EXE 0x00612900 — sends msg 0x57 to frame list
+// FrameNewSubclass         @ EXE 0x0062f150 — registers subclass proc on frame
+// TextLabelFrameCallback   @ EXE 0x00610c40 — CtlTextProc (GWCA assertion)
+//
+// Patterns verified against Gw.exe build 05-30-2026:
+//   CtlFrameListCreateItem: pattern "C7 45 0C 00 00 00 00 50 6A 57 FF 75 08"
+//                           → unique match at 0x00612925, offset -0x25 to entry
+//   FrameNewSubclass:       pattern "8D B8 A8 00 00 00 8B CF"
+//                           → unique match at 0x0062f17d, offset -0x2D to entry
+//   TextLabelFrameCallback: assertion "CtlText.cpp" / "FrameTestStyles(...)"
+//                           → ToFunctionStart(0xFFF)
+
+using CtlFrameListCreateItem_pt = uint32_t(__cdecl*)(uint32_t, uint32_t, uint32_t, void*, void*);
+using FrameNewSubclass_pt = uint32_t(__cdecl*)(uint32_t, void*, uint32_t);
+using TextLabelFrameCallback_pt = void*(__cdecl*)(uint32_t, uint32_t, void*, void*);
+
+inline CtlFrameListCreateItem_pt ResolveCtlFrameListCreateItem()
+{
+    static CtlFrameListCreateItem_pt cached = nullptr;
+    if (cached)
+        return cached;
+
+    const uintptr_t addr = GW::Scanner::Find(
+        "\xC7\x45\x0C\x00\x00\x00\x00\x50\x6A\x57\xFF\x75\x08",
+        "xxxxxxxxxxxx", -0x25);
+    if (!addr) {
+        GWCA_ERR("[SCAN] ResolveCtlFrameListCreateItem — pattern not found");
+        return nullptr;
+    }
+    cached = reinterpret_cast<CtlFrameListCreateItem_pt>(addr);
+    return cached;
+}
+
+inline FrameNewSubclass_pt ResolveFrameNewSubclass()
+{
+    static FrameNewSubclass_pt cached = nullptr;
+    if (cached)
+        return cached;
+
+    const uintptr_t addr = GW::Scanner::Find(
+        "\x8D\xB8\xA8\x00\x00\x00\x8B\xCF",
+        "xxxxxxxx", -0x2D);
+    if (!addr) {
+        GWCA_ERR("[SCAN] ResolveFrameNewSubclass — pattern not found");
+        return nullptr;
+    }
+    cached = reinterpret_cast<FrameNewSubclass_pt>(addr);
+    return cached;
+}
+
+inline TextLabelFrameCallback_pt ResolveTextLabelFrameCallback()
+{
+    static TextLabelFrameCallback_pt cached = nullptr;
+    if (cached)
+        return cached;
+
+    const uintptr_t addr = GW::Scanner::FindAssertion(
+        "CtlText.cpp",
+        "FrameTestStyles(hdr.frameId, CTLTEXT_STYLE_MODEL)",
+        0, 0);
+    if (!addr) {
+        GWCA_ERR("[SCAN] ResolveTextLabelFrameCallback — assertion not found");
+        return nullptr;
+    }
+    const uintptr_t func_start = GW::Scanner::ToFunctionStart(addr, 0xFFF);
+    if (!func_start) {
+        GWCA_ERR("[SCAN] ResolveTextLabelFrameCallback — ToFunctionStart failed");
+        return nullptr;
+    }
+    cached = reinterpret_cast<TextLabelFrameCallback_pt>(func_start);
+    return cached;
+}
+
 // Clone-time title overrides need to intercept the same native title path that
 // DevText uses when Guild Wars builds a composite window. The game can attach:
 // 1. a dynamic encoded text payload via Ui_SetFrameText, and
@@ -1571,6 +1647,36 @@ public:
         return 0;
     }
 
+    // Resolves FrameSetSize (EXE 0x0062f9a0) — sets a frame's dimensions.
+    // WASM: FrameSetSize(unsigned int, Coord2f const&) @ ram:809a9c14
+    // Assertion: FrApi.cpp, "frameId", line 0x880
+    // Takes (uint32_t frame_id, Coord2f* size).
+    static uint32_t ResolveFrameSetSize()
+    {
+        static uint32_t cached_proc = 0;
+        if (cached_proc)
+            return cached_proc;
+
+        uintptr_t addr = 0;
+        try {
+            addr = GW::Scanner::FindAssertion(
+                "\\Code\\Engine\\Frame\\FrApi.cpp", "frameId", 0x880, 0);
+        } catch (...) {
+            addr = 0;
+        }
+        if (addr) {
+            const uintptr_t fn_start = GW::Scanner::ToFunctionStart(addr, 0x100);
+            if (fn_start) {
+                cached_proc = static_cast<uint32_t>(fn_start);
+                Logger::AssertAddress("FrameSetSize", cached_proc, "UIModule");
+                return cached_proc;
+            }
+        }
+
+        GWCA_ERR("[SCAN] ResolveFrameSetSize — assertion not found");
+        return 0;
+    }
+
     // Resolves FrameGetClientBorder (EXE 0x0062D000).
     // WASM: FrameGetClientBorder(unsigned int) @ ram:809a8164
     // Assertion: FrApi.cpp, "frameId", line 0x7dd
@@ -1804,32 +1910,58 @@ public:
         return true;
     }
 
-    // Creates a titled container window with proper chrome (title bar, resize handles,
-    // close button) via _create_container_window + FrameNewSubclass(Ui_CompositeRootControlProc).
-    //
-    // 2026-06-03 — Window Polish: Added 'layer' parameter.  Passes x, y through to
-    // AttachCompositeRootToFrame for FrameSetPosition override (bypassing anchor drift).
+    // Creates a standalone native window from content-space coordinates.
+    // Inputs are pixel-space content bounds with a top-left origin, matching overlay/UI usage.
+    // The binding expands the bounds to include native chrome, converts them into the game's
+    // logical bottom-left coordinate space, then installs the composite root subclass.
     static uint32_t CreateNativeWindow(
-        float x, float y, float width, float height,
-        const std::wstring& title = L"",
-        uint32_t parent_frame_id = 9,
-        uint32_t child_index = 0,
-        uint32_t frame_flags = 0x20,
-        uintptr_t create_param = 0,
-        uint32_t anchor_flags = 0x6,
-        uint32_t subclass_flags = DEFAULT_SUBCLASS_FLAGS_COMPOSITE_ROOT,
-        int layer = 0)
+        float content_x, float content_y, float content_width, float content_height,
+        const std::wstring& title = L"")
     {
+        constexpr float kLeftBorder = 32.0f;
+        constexpr float kTopTitle = 20.0f;
+        constexpr float kRightBorder = 32.0f;
+        constexpr float kBottomBorder = 32.0f;
+        constexpr uintptr_t kCreateParam = 0;
+        constexpr uint32_t kAnchorFlags = 0x6;
+        constexpr uint32_t kSubclassFlags = DEFAULT_SUBCLASS_FLAGS_COMPOSITE_ROOT;
+        constexpr uint32_t kParentFrameId = 9;
+        constexpr uint32_t kChildIndex = 0;
+        constexpr uint32_t kFrameFlags = 0x20;
+        static int next_layer = 1;
+
+        GW::UI::Frame* root = GW::UI::GetRootFrame();
+        if (!root) {
+            GWCA_ERR("[UI] CreateNativeWindow — root frame unavailable");
+            return 0;
+        }
+
+        const auto viewport_scale = root->position.GetViewportScale(root);
+        const float scale_x = viewport_scale.x != 0.0f ? viewport_scale.x : 1.0f;
+        const float scale_y = viewport_scale.y != 0.0f ? viewport_scale.y : 1.0f;
+        const float pixel_height = root->position.viewport_height * scale_y;
+
+        const float frame_px_x = content_x - kLeftBorder;
+        const float frame_px_y = pixel_height - content_y - content_height - kBottomBorder;
+        const float frame_px_w = content_width + kLeftBorder + kRightBorder;
+        const float frame_px_h = content_height + kTopTitle + kBottomBorder;
+
+        const float engine_x = frame_px_x / scale_x;
+        const float engine_y = frame_px_y / scale_y;
+        const float engine_w = frame_px_w / scale_x;
+        const float engine_h = frame_px_h / scale_y;
+        const int layer = next_layer++;
+
         const uint32_t frame_id = _create_container_window(
-            x, y, width, height, title,
-            parent_frame_id, child_index, frame_flags, create_param, anchor_flags);
+            engine_x, engine_y, engine_w, engine_h, title,
+            kParentFrameId, kChildIndex, kFrameFlags, kCreateParam, kAnchorFlags);
 
         if (!frame_id) {
             GWCA_ERR("[UI] CreateTitledContainerWindow — _create_container_window failed");
             return 0;
         }
 
-        if (!AttachCompositeRootToFrame(frame_id, title, subclass_flags, x, y, layer)) {
+        if (!AttachCompositeRootToFrame(frame_id, title, kSubclassFlags, engine_x, engine_y, layer)) {
             GWCA_ERR("[UI] CreateTitledContainerWindow — AttachCompositeRootToFrame failed, frame_id=%u", frame_id);
             GW::GameThread::Enqueue([frame_id]() {
                 GW::UI::Frame* f = GW::UI::GetFrameById(frame_id);
@@ -2085,15 +2217,16 @@ public:
         float y,
         float width,
         float height,
-        const std::wstring& frame_label = L"",
-        uint32_t parent_frame_id = 9,
-        uint32_t child_index = 0,
-        uint32_t frame_flags = 0,
-        uintptr_t create_param = 0,
-        uintptr_t frame_callback = 0,
-        uint32_t anchor_flags = 0x6,
-        bool ensure_devtext_source = true)
+        const std::wstring& frame_label = L"")
     {
+        constexpr uint32_t kParentFrameId = 9;
+        constexpr uint32_t kChildIndex = 0;
+        constexpr uint32_t kFrameFlags = 0;
+        constexpr uintptr_t kCreateParam = 0;
+        constexpr uintptr_t kFrameCallback = 0;
+        constexpr uint32_t kAnchorFlags = 0x6;
+        constexpr bool kEnsureDevTextSource = true;
+
         if (title.empty())
             return 0;
 
@@ -2105,10 +2238,10 @@ public:
         const uint32_t frame_id = CreateWindowClone(
             x, y, width, height,
             frame_label,
-            parent_frame_id, child_index,
-            frame_flags, create_param,
-            frame_callback, anchor_flags,
-            ensure_devtext_source);
+            kParentFrameId, kChildIndex,
+            kFrameFlags, kCreateParam,
+            kFrameCallback, kAnchorFlags,
+            kEnsureDevTextSource);
 
         if (!frame_id) {
             UIManagerTitleHook::ClearNextCreatedWindowTitle();
@@ -2129,15 +2262,16 @@ public:
         float y,
         float width,
         float height,
-        const std::wstring& frame_label = L"CustomWindow",
-        uint32_t parent_frame_id = 9,
-        uint32_t child_index = 0,
-        uint32_t frame_flags = 0,
-        uintptr_t create_param = 0,
-        uintptr_t frame_callback = 0,
-        uint32_t anchor_flags = 0x6,
-        bool ensure_devtext_source = true)
+        const std::wstring& frame_label = L"CustomWindow")
     {
+        constexpr uint32_t kParentFrameId = 9;
+        constexpr uint32_t kChildIndex = 0;
+        constexpr uint32_t kFrameFlags = 0;
+        constexpr uintptr_t kCreateParam = 0;
+        constexpr uintptr_t kFrameCallback = 0;
+        constexpr uint32_t kAnchorFlags = 0x6;
+        constexpr bool kEnsureDevTextSource = true;
+
         if (title.empty())
             return 0;
 
@@ -2149,10 +2283,10 @@ public:
         const uint32_t frame_id = CreateEmptyWindowClone(
             x, y, width, height,
             frame_label,
-            parent_frame_id, child_index,
-            frame_flags, create_param,
-            frame_callback, anchor_flags,
-            ensure_devtext_source);
+            kParentFrameId, kChildIndex,
+            kFrameFlags, kCreateParam,
+            kFrameCallback, kAnchorFlags,
+            kEnsureDevTextSource);
 
         if (!frame_id) {
             UIManagerTitleHook::ClearNextCreatedWindowTitle();
@@ -2941,6 +3075,81 @@ public:
         return frame->frame_id;
     }
 
+    // Creates a native dropdown frame.
+    static uint32_t CreateDropdownFrameByFrameId(
+        uint32_t parent_frame_id,
+        uint32_t component_flags = 0x300,
+        uint32_t child_index = 0,
+        const std::wstring& component_label = L"")
+    {
+        auto* frame = GW::DropdownFrame::Create(
+            parent_frame_id,
+            component_flags,
+            child_index,
+            component_label.empty() ? nullptr : component_label.c_str());
+        return frame ? frame->frame_id : 0;
+    }
+
+    // Creates a native slider frame.
+    static uint32_t CreateSliderFrameByFrameId(
+        uint32_t parent_frame_id,
+        uint32_t component_flags = 0,
+        uint32_t child_index = 0,
+        const std::wstring& component_label = L"")
+    {
+        auto* frame = GW::SliderFrame::Create(
+            parent_frame_id,
+            component_flags,
+            child_index,
+            component_label.empty() ? nullptr : component_label.c_str());
+        return frame ? frame->frame_id : 0;
+    }
+
+    // Creates a native editable text frame.
+    static uint32_t CreateEditableTextFrameByFrameId(
+        uint32_t parent_frame_id,
+        uint32_t component_flags = 0,
+        uint32_t child_index = 0,
+        const std::wstring& component_label = L"")
+    {
+        auto* frame = GW::EditableTextFrame::Create(
+            parent_frame_id,
+            component_flags,
+            child_index,
+            component_label.empty() ? nullptr : component_label.c_str());
+        return frame ? frame->frame_id : 0;
+    }
+
+    // Creates a native progress bar frame.
+    static uint32_t CreateProgressBarByFrameId(
+        uint32_t parent_frame_id,
+        uint32_t component_flags = 0x300,
+        uint32_t child_index = 0,
+        const std::wstring& component_label = L"")
+    {
+        auto* frame = GW::ProgressBar::Create(
+            parent_frame_id,
+            component_flags,
+            child_index,
+            component_label.empty() ? nullptr : component_label.c_str());
+        return frame ? frame->frame_id : 0;
+    }
+
+    // Creates a native tabs frame.
+    static uint32_t CreateTabsFrameByFrameId(
+        uint32_t parent_frame_id,
+        uint32_t component_flags = 0x40000,
+        uint32_t child_index = 0,
+        const std::wstring& component_label = L"")
+    {
+        auto* frame = GW::TabsFrame::Create(
+            parent_frame_id,
+            component_flags,
+            child_index,
+            component_label.empty() ? nullptr : component_label.c_str());
+        return frame ? frame->frame_id : 0;
+    }
+
     static std::wstring GetButtonLabelByFrameId(uint32_t frame_id) {
         auto* frame = reinterpret_cast<GW::ButtonFrame*>(GW::UI::GetFrameById(frame_id));
         if (!frame) {
@@ -3264,15 +3473,68 @@ public:
     }
 
     static uint32_t GetSliderValueByFrameId(uint32_t frame_id) {
-        auto* frame = reinterpret_cast<GW::SliderFrame*>(GW::UI::GetFrameById(frame_id));
-        return frame ? frame->GetValue() : 0;
+        GW::UI::Frame* frame = GW::UI::GetFrameById(frame_id);
+        if (!frame) return 0;
+        uint32_t value = 0;
+        GW::UI::SendFrameUIMessage(
+            frame, static_cast<GW::UI::UIMessage>(0x58),
+            &value, nullptr);
+        return value;
     }
 
     static bool SetSliderValueByFrameId(uint32_t frame_id, uint32_t value) {
-        auto* frame = reinterpret_cast<GW::SliderFrame*>(GW::UI::GetFrameById(frame_id));
-        return frame && frame->SetValue(value);
+        GW::UI::Frame* frame = GW::UI::GetFrameById(frame_id);
+        if (!frame) return false;
+        return GW::UI::SendFrameUIMessage(
+            frame, static_cast<GW::UI::UIMessage>(0x57),
+            reinterpret_cast<void*>(static_cast<uintptr_t>(value)), nullptr);
     }
 
+    // Sets the valid integer range for a slider (msg 0x56).
+    // MUST be called before SetSliderValueByFrameId to avoid divide-by-zero.
+    static bool SetSliderRangeByFrameId(uint32_t frame_id, uint32_t min_val, uint32_t max_val) {
+        GW::UI::Frame* frame = GW::UI::GetFrameById(frame_id);
+        if (!frame) return false;
+        struct { uint32_t min; uint32_t max; } range = { min_val, max_val };
+        return GW::UI::SendFrameUIMessage(
+            frame, static_cast<GW::UI::UIMessage>(0x56),
+            &range, nullptr);
+    }
+
+    // Sets a frame's size via the native FrameSetSize (EXE 0x0062f9a0).
+    // Takes a frame_id and width/height in float. Uses Coord2f internally.
+    // Resolved via FindAssertion("FrApi.cpp", "frameId", 0x880) — same FrApi anchoring
+    // approach as FrameSetLayer and FrameSetPosition.
+    static bool FrameSetSizeByFrameId(uint32_t frame_id, float width, float height)
+    {
+        using FrameSetSize_pt = void(__cdecl*)(uint32_t, Coord2f*);
+
+        static FrameSetSize_pt fn = nullptr;
+        if (!fn) {
+            const auto addr = ResolveFrameSetSize();
+            if (!addr)
+                return false;
+            fn = reinterpret_cast<FrameSetSize_pt>(addr);
+        }
+
+        GW::UI::Frame* frame = GW::UI::GetFrameById(frame_id);
+        if (!(frame && frame->IsCreated()))
+            return false;
+
+        Coord2f size = { width, height };
+        fn(frame_id, &size);
+        return true;
+    }
+
+    // Creates a slider frame with full initialization: position, size, range, and value.
+    // One-step creation that avoids the divide-by-zero crash from calling SetValue before
+    // SetRange. Uses direct SendFrameUIMessage for range/value to avoid GWCA struct cast.
+    //
+    // Steps:
+    //   1. GW::SliderFrame::Create(parent_frame_id, 0x300, child_index, label)
+    //   2. FrameSetPosition(frame_id, &{x, y}) via ResolveFrameSetPositionCoord2f
+    //   3. FrameSetSize(frame_id, &{w, h}) via ResolveFrameSetSize
+    //   4. SendFrameUIMessage(0x56, &{0, 100}) — SetRange(0, 100)
     // Creates a text-label frame by first encoding plain text into a literal payload.
     static uint32_t CreateTextLabelFrameWithPlainTextByFrameId(
         uint32_t parent_frame_id,
@@ -3793,6 +4055,147 @@ public:
 	static bool IsShiftScreenShot() {
 		return GW::UI::GetIsShiftScreenShot();
 	}
+
+    // =========================================================================
+    // Window Contents — Frame List Item Management (2026-06-04)
+    // =========================================================================
+    // These methods enable filling a CContainerFrame window with scrollable
+    // text content via the CtlFrameListCreateItem pipeline.
+    //
+    // Architecture: CContainerFrame → FrameList (child 0, type 0xAEA) → TextLabels
+    //
+    // CtlFrameListCreateItem sends msg 0x57 to the frame list, which creates a
+    // child frame via FrameCreate with flags|0x300 and the given item proc.
+    //
+    // FrameNewSubclass registers a subclass proc on a frame for a given msg ID.
+    // Used for scrollbar chrome (msg 0x59) on frame lists.
+
+    // Calls the native CtlFrameListCreateItem (EXE 0x00612900) to add an item
+    // to a frame list. The itemProc is resolved from GWCA's TextLabelFrame_Callback.
+    // The userData must be an encoded text payload (see BuildStandaloneLiteralEncodedTextPayload).
+    //
+    // Returns the new item's frame ID, or 0 on failure.
+    static uint32_t CtlFrameListCreateItemByFrameId(
+        uint32_t parent_frame_list_id,
+        uint32_t flags,
+        uint32_t insert_index,
+        uint32_t item_proc,
+        const std::wstring& encoded_text)
+    {
+        const auto fn = ResolveCtlFrameListCreateItem();
+        if (!fn) {
+            GWCA_ERR("[UI] CtlFrameListCreateItemByFrameId — CtlFrameListCreateItem not resolved");
+            return 0;
+        }
+        if (!parent_frame_list_id) {
+            GWCA_ERR("[UI] CtlFrameListCreateItemByFrameId — invalid parent_frame_list_id");
+            return 0;
+        }
+        if (!item_proc) {
+            // Default: resolve TextLabelFrame_Callback
+            const auto cb = ResolveTextLabelFrameCallback();
+            if (!cb) {
+                GWCA_ERR("[UI] CtlFrameListCreateItemByFrameId — TextLabelFrame_Callback not resolved");
+                return 0;
+            }
+            item_proc = reinterpret_cast<uint32_t>(cb);
+        }
+        const void* user_data = encoded_text.empty() ? nullptr : encoded_text.c_str();
+        return fn(parent_frame_list_id, flags, insert_index,
+                  reinterpret_cast<void*>(static_cast<uintptr_t>(item_proc)),
+                  const_cast<void*>(user_data));
+    }
+
+    // Calls the native FrameNewSubclass (EXE 0x0062f150) to register a subclass
+    // proc on a frame. The subclass proc will be called for messages matching msg_id
+    // before the frame's own proc.
+    //
+    // Returns the subclass handle, or 0 on failure.
+    static uint32_t FrameNewSubclassByFrameId(
+        uint32_t frame_id,
+        uint32_t subclass_proc,
+        uint32_t msg_id)
+    {
+        const auto fn = ::ResolveFrameNewSubclass();
+        if (!fn) {
+            GWCA_ERR("[UI] FrameNewSubclassByFrameId — FrameNewSubclass not resolved");
+            return 0;
+        }
+        if (!frame_id || !subclass_proc) {
+            GWCA_ERR("[UI] FrameNewSubclassByFrameId — invalid arguments");
+            return 0;
+        }
+        return fn(frame_id,
+                  reinterpret_cast<void*>(static_cast<uintptr_t>(subclass_proc)),
+                  msg_id);
+    }
+
+    // Convenience: create a scrollable frame list as a child of the given window,
+    // using GWCA's CreateScrollableFrame (which wraps the frame list in a
+    // CtlViewProc scrollable container with automatic scrollbars).
+    //
+    // Returns the scrollable frame's ID, or 0 on failure.
+    static uint32_t CreateScrollableContentByFrameId(
+        uint32_t window_id,
+        uint32_t child_index = 0,
+        uint32_t component_flags = 0x20000,
+        const std::wstring& component_label = L"")
+    {
+        return CreateScrollableFrameByFrameId(window_id, component_flags, child_index,
+                                             0, component_label);
+    }
+
+    // Convenience: add a text label item to a frame list. Encodes the plain text
+    // into GW's literal encoded format and calls CtlFrameListCreateItem.
+    //
+    // Returns the new text label item's frame ID, or 0 on failure.
+    static uint32_t AddTextItemToFrameListByFrameId(
+        uint32_t frame_list_id,
+        const std::wstring& plain_text,
+        uint32_t insert_index = 0,
+        uint32_t item_flags = 0)
+    {
+        if (plain_text.empty()) {
+            GWCA_ERR("[UI] AddTextItemToFrameListByFrameId — empty text");
+            return 0;
+        }
+        std::wstring encoded = BuildStandaloneLiteralEncodedTextPayload(plain_text);
+        return CtlFrameListCreateItemByFrameId(frame_list_id, item_flags,
+                                               insert_index, 0, encoded);
+    }
+
+    // Convenience: create a titled container window with scrollable text content.
+    // One-step: creates window, creates scrollable frame list as child 0,
+    // and adds all text items.
+    //
+    // Returns the window frame ID, or 0 on failure.
+    // (Item IDs can be queried via the frame list after creation.)
+    static uint32_t CreateScrollableTextWindow(
+        float x, float y, float width, float height,
+        const std::wstring& title,
+        const std::vector<std::wstring>& items)
+    {
+        // Step 1: Create container window
+        const uint32_t window_id = CreateNativeWindow(x, y, width, height, title);
+        if (!window_id) {
+            GWCA_ERR("[UI] CreateScrollableTextWindow — window creation failed");
+            return 0;
+        }
+
+        // Step 2: Create scrollable frame list as child 0
+        const uint32_t frame_list_id = CreateScrollableContentByFrameId(window_id, 0);
+        if (!frame_list_id) {
+            GWCA_ERR("[UI] CreateScrollableTextWindow — scrollable content creation failed");
+            return 0;
+        }
+
+        // Step 3: Add text items
+        for (const auto& item : items) {
+            AddTextItemToFrameListByFrameId(frame_list_id, item);
+        }
+
+        return window_id;
+    }
 
 };
 

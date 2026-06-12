@@ -504,18 +504,11 @@ PYBIND11_EMBEDDED_MODULE(PyUIManager, m) {
 		)
 		.def_static("CreateNativeWindow",
 			&UIManager::CreateNativeWindow,
-			py::arg("x"),
-			py::arg("y"),
-			py::arg("width"),
-			py::arg("height"),
-			py::arg("title") = std::wstring(),
-			py::arg("parent_frame_id") = 9,
-			py::arg("child_index") = 0,
-			py::arg("frame_flags") = 0x20,
-			py::arg("create_param") = 0,
-			py::arg("anchor_flags") = 0x6,
-			py::arg("subclass_flags") = 0x59,
-			py::arg("layer") = 0
+			py::arg("content_x"),
+			py::arg("content_y"),
+			py::arg("content_width"),
+			py::arg("content_height"),
+			py::arg("title") = std::wstring()
 		)
 		.def_static("ensure_devtext_source",
 			&UIManager::EnsureDevTextSource
@@ -579,14 +572,7 @@ PYBIND11_EMBEDDED_MODULE(PyUIManager, m) {
 			py::arg("y"),
 			py::arg("width"),
 			py::arg("height"),
-			py::arg("frame_label") = std::wstring(),
-			py::arg("parent_frame_id") = 9,
-			py::arg("child_index") = 0,
-			py::arg("frame_flags") = 0,
-			py::arg("create_param") = 0,
-			py::arg("frame_callback") = 0,
-			py::arg("anchor_flags") = 0x6,
-			py::arg("ensure_devtext_source") = true
+			py::arg("frame_label") = std::wstring()
 		)
 		.def_static("create_titled_empty_window_clone",
 			&UIManager::CreateTitledEmptyWindowClone,
@@ -595,14 +581,7 @@ PYBIND11_EMBEDDED_MODULE(PyUIManager, m) {
 			py::arg("y"),
 			py::arg("width"),
 			py::arg("height"),
-			py::arg("frame_label") = L"CustomWindow",
-			py::arg("parent_frame_id") = 9,
-			py::arg("child_index") = 0,
-			py::arg("frame_flags") = 0,
-			py::arg("create_param") = 0,
-			py::arg("frame_callback") = 0,
-			py::arg("anchor_flags") = 0x6,
-			py::arg("ensure_devtext_source") = true
+			py::arg("frame_label") = L"CustomWindow"
 		)
 		.def_static("set_frame_controller_anchor_margins_by_frame_id_ex",
 			&UIManager::SetFrameControllerAnchorMarginsByFrameIdEx,
@@ -878,6 +857,46 @@ PYBIND11_EMBEDDED_MODULE(PyUIManager, m) {
 			py::arg("name_enc") = std::wstring(),
 			py::arg("component_label") = std::wstring()
 		)
+		.def_static("create_dropdown_frame_by_frame_id",
+			&UIManager::CreateDropdownFrameByFrameId,
+			py::arg("parent_frame_id"),
+			py::arg("component_flags") = 0x300,
+			py::arg("child_index") = 0,
+			py::arg("component_label") = std::wstring(),
+			"Create a native DropdownFrame."
+		)
+		.def_static("create_slider_frame_by_frame_id",
+			&UIManager::CreateSliderFrameByFrameId,
+			py::arg("parent_frame_id"),
+			py::arg("component_flags") = 0,
+			py::arg("child_index") = 0,
+			py::arg("component_label") = std::wstring(),
+			"Create a native SliderFrame."
+		)
+		.def_static("create_editable_text_frame_by_frame_id",
+			&UIManager::CreateEditableTextFrameByFrameId,
+			py::arg("parent_frame_id"),
+			py::arg("component_flags") = 0,
+			py::arg("child_index") = 0,
+			py::arg("component_label") = std::wstring(),
+			"Create a native EditableTextFrame."
+		)
+		.def_static("create_progress_bar_by_frame_id",
+			&UIManager::CreateProgressBarByFrameId,
+			py::arg("parent_frame_id"),
+			py::arg("component_flags") = 0x300,
+			py::arg("child_index") = 0,
+			py::arg("component_label") = std::wstring(),
+			"Create a native ProgressBar."
+		)
+		.def_static("create_tabs_frame_by_frame_id",
+			&UIManager::CreateTabsFrameByFrameId,
+			py::arg("parent_frame_id"),
+			py::arg("component_flags") = 0x40000,
+			py::arg("child_index") = 0,
+			py::arg("component_label") = std::wstring(),
+			"Create a native TabsFrame."
+		)
 		.def_static("get_button_label_by_frame_id",
 			&UIManager::GetButtonLabelByFrameId,
 			py::arg("frame_id"))
@@ -1095,6 +1114,17 @@ PYBIND11_EMBEDDED_MODULE(PyUIManager, m) {
 			&UIManager::SetSliderValueByFrameId,
 			py::arg("frame_id"),
 			py::arg("value"))
+		.def_static("set_slider_range_by_frame_id",
+			&UIManager::SetSliderRangeByFrameId,
+			py::arg("frame_id"),
+			py::arg("min_val"),
+			py::arg("max_val"))
+		.def_static("frame_set_size_by_frame_id",
+			&UIManager::FrameSetSizeByFrameId,
+			py::arg("frame_id"),
+			py::arg("width"),
+			py::arg("height"),
+			"Set a frame's dimensions via native FrameSetSize.")
 		.def_static("create_text_label_frame_with_plain_text_by_frame_id",
 			&UIManager::CreateTextLabelFrameWithPlainTextByFrameId,
 			py::arg("parent_frame_id"),
@@ -1159,6 +1189,57 @@ PYBIND11_EMBEDDED_MODULE(PyUIManager, m) {
 		.def_static("set_window_visible", &UIManager::SetWindowVisible, py::arg("window_id"), py::arg("is_visible"), "Sets the visibility of a window.")
 		.def_static("set_window_position", &UIManager::SetWindowPosition, py::arg("window_id"), py::arg("position"), "Sets the position of a window.")
 		.def_static("is_shift_screenshot", &UIManager::IsShiftScreenShot, "Checks if the Shift key is used for screenshots.")
+
+		// =====================================================================
+		// Window Contents — Frame List Item Management (2026-06-04)
+		// =====================================================================
+		.def_static("ctl_frame_list_create_item_by_frame_id",
+			&UIManager::CtlFrameListCreateItemByFrameId,
+			py::arg("parent_frame_list_id"),
+			py::arg("flags"),
+			py::arg("insert_index"),
+			py::arg("item_proc"),
+			py::arg("encoded_text"),
+			"Creates an item child in a frame list via msg 0x57. "
+			"Returns the new item's frame ID."
+		)
+		.def_static("frame_new_subclass_by_frame_id",
+			&UIManager::FrameNewSubclassByFrameId,
+			py::arg("frame_id"),
+			py::arg("subclass_proc"),
+			py::arg("msg_id"),
+			"Registers a subclass proc on a frame for a given msg ID. "
+			"Returns the subclass handle."
+		)
+		.def_static("create_scrollable_content_by_frame_id",
+			&UIManager::CreateScrollableContentByFrameId,
+			py::arg("window_id"),
+			py::arg("child_index") = 0,
+			py::arg("component_flags") = 0x20000,
+			py::arg("component_label") = std::wstring(),
+			"Creates a scrollable frame list as a child of the window. "
+			"Returns the scrollable frame's ID."
+		)
+		.def_static("add_text_item_to_frame_list_by_frame_id",
+			&UIManager::AddTextItemToFrameListByFrameId,
+			py::arg("frame_list_id"),
+			py::arg("plain_text"),
+			py::arg("insert_index") = 0,
+			py::arg("item_flags") = 0,
+			"Adds a text label item to a frame list. Encodes plain text and "
+			"calls CtlFrameListCreateItem. Returns the item's frame ID."
+		)
+		.def_static("create_scrollable_text_window",
+			&UIManager::CreateScrollableTextWindow,
+			py::arg("x"),
+			py::arg("y"),
+			py::arg("width"),
+			py::arg("height"),
+			py::arg("title"),
+			py::arg("items"),
+			"One-step: creates a titled container window with scrollable text items. "
+			"Returns the window frame ID."
+		)
 
 		// Vector C — Title via Path B text storage + per-frame invalidation
 		.def_static("send_title_msg_5e",

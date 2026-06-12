@@ -2197,7 +2197,7 @@ void Py4GW::Draw(IDirect3DDevice9* device) {
 bool InCharacterSelectScreen()
 {
     const GW::PreGameContext* pgc = GW::GetPreGameContext();
-    if (!pgc || !pgc->chars.valid()) {
+    if (!pgc || !pgc->chars_buffer || !pgc->chars_count) {
         return false;
     }
     uint32_t ui_state = 10;
