@@ -4,6 +4,8 @@
 #include "FrameClock.h"
 #include "py_dialog.h"
 #include "name_obfuscation.h"
+#include "CrashHandler.h"
+#include "Breadcrumbs.h"
 #include <iostream>
 
 //HeroAI* Py4GW::heroAI = nullptr;
@@ -2019,7 +2021,6 @@ void Py4GW::Draw(IDirect3DDevice9* device) {
             if ((GW::Map::GetMapInfo()->flags & 0x40001) != 0)
                 return;
         }
-
     }
 
     if (show_console || is_map_loading) {
@@ -2355,6 +2356,44 @@ void bind_Ping(py::module_& m)
 }
 
 
+// crashlog submodule: breadcrumb bridge used by py4gwcorelib_src/CrashLog.py.
+static void bind_CrashLog(py::module_& m)
+{
+    // Snapshot the last Python frame into per-thread TLS (GIL held by the caller).
+    m.def("set_last_frame",
+        [](const std::string& file, int line, const std::string& func) {
+            bc::set_last_py_frame(file.c_str(), line, func.c_str());
+        },
+        "Record the last Python frame for the native crash handler",
+        py::arg("file"), py::arg("line"), py::arg("func"));
+
+    // Coarse one-line breadcrumb into the lock-free ring.
+    m.def("breadcrumb",
+        [](const std::string& text) { bc::breadcrumb(text.c_str()); },
+        "Append a coarse breadcrumb to the crash ring",
+        py::arg("text"));
+
+    // Native crash dir (<dllDir>/crashes) so CrashLog.py writes *-pytrace.txt beside the .dmp/.json.
+    m.def("get_crash_dir",
+        []() { return CrashHandler::Instance().CrashDirUtf8(); },
+        "Return the native crash directory (UTF-8)");
+}
+
+// Optional debug submodule: deliberate fault to test Path A. Gated to debug builds.
+static void bind_Debug(py::module_& m)
+{
+#ifdef PY4GW_DEBUG_BUILD
+    m.def("crash",
+        []() {
+            volatile int* p = nullptr;
+            *p = 1;   // intentional access violation -> Path A writes a dump
+        },
+        "TEST ONLY: trigger a native access violation to exercise the crash handler");
+#else
+    (void)m;
+#endif
+}
+
 PYBIND11_EMBEDDED_MODULE(Py4GW, m)
 {
     m.doc() = "Py4GW, Python Enabler Library for GuildWars"; // Optional module docstring
@@ -2371,6 +2410,11 @@ PYBIND11_EMBEDDED_MODULE(Py4GW, m)
 	bind_ScriptControl(console);
 	bind_Profiler(console);
 	bind_Ping(m);
+
+	py::module_ crashlog = m.def_submodule("crashlog", "Crash breadcrumb bridge");
+	bind_CrashLog(crashlog);
+	py::module_ debug = m.def_submodule("debug", "Debug / crash testing");
+	bind_Debug(debug);
 }
 
 
