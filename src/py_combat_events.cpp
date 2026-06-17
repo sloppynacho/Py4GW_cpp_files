@@ -34,6 +34,7 @@
  */
 
 #include "py_combat_events.h"
+#include "Py4GW.h"
 
 namespace py = pybind11;
 
@@ -58,6 +59,11 @@ namespace CombatEventTypes {
     constexpr uint32_t CRITICAL = to_uint(CombatEventType::CRITICAL);
     constexpr uint32_t ARMOR_IGNORING = to_uint(CombatEventType::ARMOR_IGNORING);
     constexpr uint32_t HEALING = to_uint(CombatEventType::HEALING);
+    constexpr uint32_t CURRENT_HEALTH = to_uint(CombatEventType::CURRENT_HEALTH);
+    constexpr uint32_t CURRENT_ENERGY = to_uint(CombatEventType::CURRENT_ENERGY);
+    constexpr uint32_t HEALTH_REGEN_CHANGE = to_uint(CombatEventType::HEALTH_REGEN_CHANGE);
+    constexpr uint32_t ENERGY_REGEN_CHANGE = to_uint(CombatEventType::ENERGY_REGEN_CHANGE);
+    constexpr uint32_t REACHED_MAXHP = to_uint(CombatEventType::REACHED_MAXHP);
     constexpr uint32_t EFFECT_APPLIED = to_uint(CombatEventType::EFFECT_APPLIED);
     constexpr uint32_t EFFECT_REMOVED = to_uint(CombatEventType::EFFECT_REMOVED);
     constexpr uint32_t EFFECT_ON_TARGET = to_uint(CombatEventType::EFFECT_ON_TARGET);
@@ -217,7 +223,11 @@ void CombatEventQueue::OnSkillActivate(GW::Packet::StoC::SkillActivate* packet) 
         active_effects.clear();
         return;
     }
-    uint32_t now = static_cast<uint32_t>(GetTickCount64());
+
+    if (!GW::Agents::GetAgentByID(packet->agent_id)) { return; }
+	if (packet->skill_id == 0) { return; }
+
+    uint64_t now = static_cast<uint32_t>(Py4GW::Get_Tick_Count64());
     PushEvent(RawCombatEvent(now, CombatEventTypes::SKILL_ACTIVATE_PACKET,
         packet->agent_id, packet->skill_id, 0, 0.0f));
 }
@@ -242,7 +252,9 @@ void CombatEventQueue::OnGenericValue(GW::Packet::StoC::GenericValue* packet) {
         active_effects.clear();
         return;
     }
-    uint32_t now = static_cast<uint32_t>(GetTickCount64());
+    if (!GW::Agents::GetAgentByID(packet->agent_id)) { return; }
+
+    uint32_t now = static_cast<uint32_t>(Py4GW::Get_Tick_Count64());
 
     using namespace GW::Packet::StoC::GenericValueID;
 
@@ -339,6 +351,14 @@ void CombatEventQueue::OnGenericValue(GW::Packet::StoC::GenericValue* packet) {
             PushEvent(RawCombatEvent(now, CombatEventTypes::ENERGY_GAINED,
                 packet->agent_id, 0, 0, static_cast<float>(packet->value)));
             break;
+
+        case max_hp_reached:
+            // Observed 2026-05-21: fires when an agent's HP returns to full,
+            // not when max HP itself changes (matches the past-tense GWCA name
+            // "max_hp_reached"). value/target are typically 0 - it's a signal event.
+            PushEvent(RawCombatEvent(now, CombatEventTypes::REACHED_MAXHP,
+                packet->agent_id, packet->value, 0, 0.0f));
+            break;
     }
 }
 
@@ -364,7 +384,11 @@ void CombatEventQueue::OnGenericValueTarget(GW::Packet::StoC::GenericValueTarget
         active_effects.clear();
         return;
     }
-    uint32_t now = static_cast<uint32_t>(GetTickCount64());
+
+    if (!GW::Agents::GetAgentByID(packet->target)) { return; }
+    if (!GW::Agents::GetAgentByID(packet->caster)) { return; }
+
+    uint64_t now = static_cast<uint32_t>(Py4GW::Get_Tick_Count64());
 
     using namespace GW::Packet::StoC::GenericValueID;
 
@@ -408,15 +432,23 @@ void CombatEventQueue::OnGenericValueTarget(GW::Packet::StoC::GenericValueTarget
  * - knocked_down: Agent knocked down, float_value = duration in seconds
  * - casttime: Cast time modifier received, float_value = duration in seconds
  * - energy_spent: Energy consumed, float_value = energy as fraction of max
+ * - health (34), change_health_regen (44): HP snapshot + regen rate (GWCA-labeled)
+ * - energy (33), change_energy_regen (43): energy equivalents (no GWCA label)
  */
 void CombatEventQueue::OnGenericFloat(GW::Packet::StoC::GenericFloat* packet) {
     if (!IsMapReady()) {
         active_effects.clear();
         return;
     }
-    uint32_t now = static_cast<uint32_t>(GetTickCount64());
+
+	if (!GW::Agents::GetAgentByID(packet->agent_id)) { return; }
+    uint64_t now = static_cast<uint32_t>(Py4GW::Get_Tick_Count64());
 
     using namespace GW::Packet::StoC::GenericValueID;
+    // GWCA-unlabeled value_ids confirmed via WASM RE 2026-05-21
+    constexpr uint32_t energy = 33;  // AvCharNotifyStatInit(agent, ENERGY)
+    constexpr uint32_t change_energy_regen = 43;  // AvCharNotifyStatRate(agent, ENERGY)
+
 
     switch (packet->type) {
         case knocked_down:
@@ -435,6 +467,32 @@ void CombatEventQueue::OnGenericFloat(GW::Packet::StoC::GenericFloat* packet) {
         case energy_spent:
             // Energy spent - float_value is fraction of max energy (0.0-1.0)
             PushEvent(RawCombatEvent(now, CombatEventTypes::ENERGY_SPENT,
+                packet->agent_id, 0, 0, packet->value));
+            break;
+
+        case energy:
+            // Current energy as fraction of max (0.0-1.0). Fires on visibility
+            // / engagement resync. Authoritative for engaged agents.
+            PushEvent(RawCombatEvent(now, CombatEventTypes::CURRENT_ENERGY,
+                packet->agent_id, 0, 0, packet->value));
+            break;
+
+        case health:
+            // Current HP as fraction of max (0.0-1.0). Fires on visibility
+            // / engagement resync. Authoritative for engaged agents.
+            PushEvent(RawCombatEvent(now, CombatEventTypes::CURRENT_HEALTH,
+                packet->agent_id, 0, 0, packet->value));
+            break;
+
+        case change_energy_regen:
+            // Energy regen change - float_value is pips/sec (signed)
+            PushEvent(RawCombatEvent(now, CombatEventTypes::ENERGY_REGEN_CHANGE,
+                packet->agent_id, 0, 0, packet->value));
+            break;
+
+        case change_health_regen:
+            // HP regen change - float_value is pips/sec (signed)
+            PushEvent(RawCombatEvent(now, CombatEventTypes::HEALTH_REGEN_CHANGE,
                 packet->agent_id, 0, 0, packet->value));
             break;
     }
@@ -459,7 +517,9 @@ void CombatEventQueue::OnGenericModifier(GW::Packet::StoC::GenericModifier* pack
         active_effects.clear();
         return;
     }
-    uint32_t now = static_cast<uint32_t>(GetTickCount64());
+	if (!GW::Agents::GetAgentByID(packet->target_id)) { return; }
+	if (!GW::Agents::GetAgentByID(packet->cause_id)) { return; }
+    uint64_t now = static_cast<uint32_t>(Py4GW::Get_Tick_Count64());
 
     using namespace GW::Packet::StoC::GenericValueID;
 
@@ -515,7 +575,8 @@ void CombatEventQueue::OnSkillRecharge(GW::Packet::StoC::SkillRecharge* packet) 
         active_effects.clear();
         return;
     }
-    uint32_t now = static_cast<uint32_t>(GetTickCount64());
+	if (!GW::Agents::GetAgentByID(packet->agent_id)) { return; }
+    uint64_t now = static_cast<uint32_t>(Py4GW::Get_Tick_Count64());
     // agent_id=who, value=skill_id, float_value=recharge_ms
     PushEvent(RawCombatEvent(now, CombatEventTypes::SKILL_RECHARGE,
         packet->agent_id, packet->skill_id, 0, static_cast<float>(packet->recharge)));
@@ -541,7 +602,8 @@ void CombatEventQueue::OnSkillRecharged(GW::Packet::StoC::SkillRecharged* packet
         active_effects.clear();
         return;
     }
-    uint32_t now = static_cast<uint32_t>(GetTickCount64());
+	if (!GW::Agents::GetAgentByID(packet->agent_id)) { return; }
+    uint64_t now = static_cast<uint32_t>(Py4GW::Get_Tick_Count64());
     // agent_id=who, value=skill_id
     PushEvent(RawCombatEvent(now, CombatEventTypes::SKILL_RECHARGED,
         packet->agent_id, packet->skill_id, 0, 0.0f));
@@ -606,6 +668,11 @@ Note:
     types.attr("CRITICAL") = CombatEventTypes::CRITICAL;
     types.attr("ARMOR_IGNORING") = CombatEventTypes::ARMOR_IGNORING;
     types.attr("HEALING") = CombatEventTypes::HEALING;
+    types.attr("CURRENT_HEALTH") = CombatEventTypes::CURRENT_HEALTH;
+    types.attr("CURRENT_ENERGY") = CombatEventTypes::CURRENT_ENERGY;
+    types.attr("HEALTH_REGEN_CHANGE") = CombatEventTypes::HEALTH_REGEN_CHANGE;
+    types.attr("ENERGY_REGEN_CHANGE") = CombatEventTypes::ENERGY_REGEN_CHANGE;
+    types.attr("REACHED_MAXHP") = CombatEventTypes::REACHED_MAXHP;
     types.attr("EFFECT_APPLIED") = CombatEventTypes::EFFECT_APPLIED;
     types.attr("EFFECT_REMOVED") = CombatEventTypes::EFFECT_REMOVED;
     types.attr("EFFECT_ON_TARGET") = CombatEventTypes::EFFECT_ON_TARGET;
@@ -626,6 +693,10 @@ Note:
         .def_readonly("value", &RawCombatEvent::value)
         .def_readonly("target_id", &RawCombatEvent::target_id)
         .def_readonly("float_value", &RawCombatEvent::float_value)
+        .def_readonly("agent_max_hp", &RawCombatEvent::agent_max_hp)
+        .def_readonly("agent_max_energy", &RawCombatEvent::agent_max_energy)
+        .def_readonly("target_max_hp", &RawCombatEvent::target_max_hp)
+        .def_readonly("target_max_energy", &RawCombatEvent::target_max_energy)
         .def("__repr__", [](const RawCombatEvent& e) {
             return "<RawCombatEvent type=" + std::to_string(e.event_type) +
                    " agent=" + std::to_string(e.agent_id) +

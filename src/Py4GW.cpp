@@ -1,4 +1,5 @@
 #include "Py4GW.h"
+#include "py_name_obfuscator.h"
 
 #include "Headers.h"
 #include "py_dialog.h"
@@ -653,9 +654,10 @@ bool ChangeWorkingDirectory(const std::string& new_directory) {
     return SetCurrentDirectoryW(wide_directory.c_str()) != 0;
 }
 
-static uint64_t Get_Tick_Count64() {
+uint64_t Py4GW::Get_Tick_Count64() {
     return frame_id_timestamp ? frame_id_timestamp : GetTickCount64();
 }
+
 HWND Py4GW::get_gw_window_handle() {
     return GW::MemoryMgr::GetGWWindowHandle();
     //return gw_window_handle; 
@@ -1889,6 +1891,7 @@ void DrawCompactConsole(bool* new_p_open = nullptr) {
 
 bool Py4GW::Initialize() {
     py::initialize_interpreter();
+    NameObfuscator::Instance().Initialize();
     InitializeMerchantCallbacks();
     Dialog::Initialize();
 
@@ -1903,6 +1906,7 @@ bool Py4GW::Initialize() {
 }
 
 void Py4GW::Terminate() {
+    NameObfuscator::Instance().Terminate();
     Dialog::Terminate();
     g_runtime_shared_memory.Destroy();
     GW::DisableHooks();
@@ -2009,6 +2013,7 @@ void Py4GW::Draw(IDirect3DDevice9* device) {
 
 
     bool is_map_loading = GW::Map::GetInstanceType() == GW::Constants::InstanceType::Loading;
+    
     if (!is_map_loading) {
         auto map_info = GW::Map::GetMapInfo();
         if (map_info) {
@@ -2017,7 +2022,7 @@ void Py4GW::Draw(IDirect3DDevice9* device) {
         }
 
     }
-
+    
     if (show_console || is_map_loading) {
         DrawConsole("Py4GW Console", &console_open);
     }
@@ -2212,7 +2217,7 @@ void bind_Game(py::module_& game)
     
     game.def("enqueue",&EnqueuePythonCallback,"Enqueue a Python callback to run on the GW game thread");
 
-    game.def("get_tick_count64",&Get_Tick_Count64,"Get the current tick count as a 64-bit integer");
+    game.def("get_tick_count64",&Py4GW::Get_Tick_Count64,"Get the current tick count as a 64-bit integer");
     game.def("get_shared_memory_name", &GetRuntimeSharedMemoryName, "Get the current per-process runtime shared-memory name.");
     game.def("get_shared_memory_size", &GetRuntimeSharedMemorySize, "Get the runtime shared-memory region size in bytes.");
     game.def("is_shared_memory_ready", &IsRuntimeSharedMemoryReady, "Check whether the runtime shared-memory region is active.");
